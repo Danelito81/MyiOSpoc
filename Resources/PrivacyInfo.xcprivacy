@@ -1,0 +1,13 @@
+{
+  "privacy": {
+    "tracking": { "doesTracking": false },
+    "access": {
+      "privacyTypesAccessed": [
+        {
+          "privacyType": "NSPrivacyAccessedAPIMicrophone",
+          "privacyTypeReasons": ["Audio processing for user-initiated protection mode"]
+        }
+      ]
+    }
+  }
+}
