@@ -32,6 +32,25 @@ workflows:
           xcodegen generate
           ls -la
 
+      - name: Sanity check App Store Connect env vars
+        script: |
+          if [ -z "$APP_STORE_CONNECT_ISSUER_ID" ]; then
+            echo "MISS: APP_STORE_CONNECT_ISSUER_ID is empty"; exit 1
+          else
+            echo "OK: APP_STORE_CONNECT_ISSUER_ID present"
+          fi
+          if [ -z "$APP_STORE_CONNECT_KEY_IDENTIFIER" ]; then
+            echo "MISS: APP_STORE_CONNECT_KEY_IDENTIFIER is empty"; exit 1
+          else
+            echo "OK: APP_STORE_CONNECT_KEY_IDENTIFIER present"
+          fi
+          if [ -z "$APP_STORE_CONNECT_PRIVATE_KEY" ]; then
+            echo "MISS: APP_STORE_CONNECT_PRIVATE_KEY is empty"; exit 1
+          else
+            echo "OK: APP_STORE_CONNECT_PRIVATE_KEY present"
+          fi
+
+
       # Automatisk signering via din Apple-integration
       - name: Fetch signing files from App Store Connect
         script: |
