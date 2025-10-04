@@ -7,6 +7,8 @@ workflows:
         XCODE_PROJECT: "TryggSamtal.xcodeproj"
         XCODE_SCHEME: "TryggSamtal"
         BUNDLE_ID: "com.yourname.tryggsamtal"   # byt till samma som i project.yml
+        APP_STORE_CONNECT_ISSUER_ID: "47854e61-50b6-4773-9d7d-da77933ae014"
+
     scripts:
       - name: Install tools
         script: |
