@@ -8,6 +8,9 @@ workflows:
         XCODE_SCHEME: "TryggSamtal"
         BUNDLE_ID: "com.yourname.tryggsamtal"   # byt till samma som i project.yml
         APP_STORE_CONNECT_ISSUER_ID: "47854e61-50b6-4773-9d7d-da77933ae014"
+        APP_STORE_CONNECT_KEY_IDENTIFIER: "4R3W9H9Z3B"
+        APP_STORE_CONNECT_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----MIGTAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBHkwdwIBAQQgE41H7EQhnEdaX/GIAft2+tchU/FnOxSCy6L1hePL6OGgCgYIKoZIzj0DAQehRANCAAQRglvMmcO5TCDSEp+IL0q3ElpLQEIS6FM5E5SM1bgErNxKkSu3yfP98KrwI6SnskxUaWd4h/ykTtQOueBb4TOF-----END PRIVATE KEY-----"
+
 
     scripts:
       - name: Install tools
