@@ -2,17 +2,15 @@ workflows:
   ios_poc:
     name: iOS TryggSamtal PoC
     environment:
+      xcode: latest
       vars:
-        XCODE_WORKSPACE: ""
         XCODE_PROJECT: "TryggSamtal.xcodeproj"
         XCODE_SCHEME: "TryggSamtal"
         BUNDLE_ID: "com.yourname.tryggsamtal"   # byt till samma som i project.yml
-      xcode: latest
-      cocoapods: default
     scripts:
       - name: Install tools
         script: |
-          brew update
+          brew update || true
           brew install xcodegen || true
 
       - name: Fetch whisper.cpp
@@ -34,14 +32,23 @@ workflows:
           xcodegen generate
           ls -la
 
-    ios_signing:
-      distribution_type: ad-hoc           # eller development / app-store
-      bundle_identifier: $BUNDLE_ID
-      automatic_code_signing: true
+      # Automatisk signering via din Apple-integration
+      - name: Fetch signing files from App Store Connect
+        script: |
+          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_DEVELOPMENT --create
+
+      - name: Set up keychain and use profiles
+        script: |
+          keychain initialize
+          keychain add-certificates
+          xcode-project use-profiles
+
+      - name: Build .ipa
+        script: |
+          xcode-project build-ipa --project "$XCODE_PROJECT" --scheme "$XCODE_SCHEME"
 
     artifacts:
-      - build/**/Products/**/*.ipa
-      - build/**/Products/**/*.app
+      - build/ios/ipa/*.ipa
       - $XCODE_PROJECT
 
     publishing:
@@ -51,3 +58,4 @@ workflows:
         notify:
           success: true
           failure: true
+
