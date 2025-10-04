@@ -1,0 +1,53 @@
+workflows:
+  ios_poc:
+    name: iOS TryggSamtal PoC
+    environment:
+      vars:
+        XCODE_WORKSPACE: ""
+        XCODE_PROJECT: "TryggSamtal.xcodeproj"
+        XCODE_SCHEME: "TryggSamtal"
+        BUNDLE_ID: "com.yourname.tryggsamtal"   # byt till samma som i project.yml
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Install tools
+        script: |
+          brew update
+          brew install xcodegen || true
+
+      - name: Fetch whisper.cpp
+        script: |
+          mkdir -p vendor
+          if [ ! -d vendor/whisper.cpp ]; then
+            git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git vendor/whisper.cpp
+          fi
+
+      - name: Add Whisper model
+        script: |
+          mkdir -p Resources/Models
+          if [ ! -f Resources/Models/ggml-base.bin ]; then
+            curl -L -o Resources/Models/ggml-base.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin
+          fi
+
+      - name: Generate Xcode project via XcodeGen
+        script: |
+          xcodegen generate
+          ls -la
+
+    ios_signing:
+      distribution_type: ad-hoc           # eller development / app-store
+      bundle_identifier: $BUNDLE_ID
+      automatic_code_signing: true
+
+    artifacts:
+      - build/**/Products/**/*.ipa
+      - build/**/Products/**/*.app
+      - $XCODE_PROJECT
+
+    publishing:
+      email:
+        recipients:
+          - your@email.com
+        notify:
+          success: true
+          failure: true
