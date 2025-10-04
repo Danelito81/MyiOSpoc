@@ -1,0 +1,39 @@
+name: TryggSamtal
+options:
+  minimumXcodeGenVersion: 2.38.0
+  deploymentTarget:
+    iOS: "16.0"
+
+settings:
+  base:
+    PRODUCT_BUNDLE_IDENTIFIER: com.yourname.tryggsamtal
+    DEVELOPMENT_TEAM: ""
+    SWIFT_VERSION: 5.9
+    CODE_SIGN_STYLE: Automatic
+    INFOPLIST_FILE: Resources/Info.plist
+
+targets:
+  TryggSamtal:
+    type: application
+    platform: iOS
+    sources:
+      - path: UI
+      - path: Audio
+      - path: STT
+      - path: STTRuntime
+      - path: Detection
+      - path: Services
+      - path: Resources
+      - path: vendor/whisper.cpp/whisper.cpp
+      - path: vendor/whisper.cpp/whisper.h
+      - path: vendor/whisper.cpp/ggml
+    settings:
+      base:
+        PRODUCT_NAME: TryggSamtal
+        TARGETED_DEVICE_FAMILY: "1"
+        IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+        OTHER_CFLAGS: $(inherited)
+        OTHER_LDFLAGS: $(inherited)
+        ENABLE_BITCODE: NO
+    scheme:
+      name: TryggSamtal
