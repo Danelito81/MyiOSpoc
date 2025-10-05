@@ -191,7 +191,7 @@ workflows:
           done
           [ $miss -eq 0 ] || { echo "❌ Fix missing env vars in Codemagic → Environment variables (group 'admin')"; exit 1; }
 
-      - name: Upload to TestFlight (pass PEM content, not path)
+      - name: Upload to TestFlight (pass PEM content, minimal flags)
         script: |
           set -e
           IPA="$(ls build/ios/ipa/*.ipa 2>/dev/null | head -n 1)"
@@ -199,21 +199,15 @@ workflows:
             echo "❌ No IPA found to upload"; exit 1
           fi
 
-          # 1) Rånyckel → fil
+          # Normalisera .p8 → PEM-innehåll
           printf "%s" "$APP_STORE_CONNECT_PRIVATE_KEY" > appstore_key.raw
-
-          # 2) Ta bort CR och omslutande citattecken
           tr -d '\r' < appstore_key.raw > appstore_key.nocr
           sed -e '1s/^"//' -e '$s/"$//' appstore_key.nocr > appstore_key.stripped
-
-          # 3) Konvertera ev. '\n' till riktiga radbrytningar
           if grep -q '\\n' appstore_key.stripped; then
             printf "%b" "$(cat appstore_key.stripped)" > appstore_key.norm
           else
             cp appstore_key.stripped appstore_key.norm
           fi
-
-          # 4) Säkerställ korrekt PEM (addera headers om de saknas)
           if ! grep -q "BEGIN PRIVATE KEY" appstore_key.norm; then
             {
               echo "-----BEGIN PRIVATE KEY-----"
@@ -224,12 +218,9 @@ workflows:
             cat appstore_key.norm > appstore_key.p8
             echo >> appstore_key.p8
           fi
-
           chmod 600 appstore_key.p8
-          echo "Key header: $(head -n 1 appstore_key.p8 || true)"
-          echo "Key footer: $(tail -n 1 appstore_key.p8 || true)"
 
-          # 5) Validera att PEM är giltig
+          # Verifiera
           if ! openssl pkey -in appstore_key.p8 -noout >/dev/null 2>&1; then
             echo "❌ APP_STORE_CONNECT_PRIVATE_KEY is not a valid PEM after normalization."
             head -n 4 appstore_key.p8 || true
@@ -237,7 +228,6 @@ workflows:
             exit 1
           fi
 
-          # 6) Skicka **PEM-INNEHÅLLET** (inte sökvägen) till app-store-connect
           PEM_CONTENT="$(cat appstore_key.p8)"
 
           echo ">>> Uploading to TestFlight"
@@ -247,9 +237,7 @@ workflows:
             --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
             --private-key "$PEM_CONTENT" \
             --platform IOS \
-            --testflight \
-            --submit-for-beta-review \
-            --release-notes "${TESTFLIGHT_RELEASE_NOTES:-Codemagic PoC build}"
+            --testflight
 
           echo "✅ Upload queued."
 
