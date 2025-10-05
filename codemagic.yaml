@@ -4,7 +4,7 @@ workflows:
     environment:
       xcode: latest
       groups:
-        - admin          # <- variablerna ligger i gruppen "admin"
+        - admin          # <-- dina Secure env vars ligger i gruppen "admin"
       vars:
         # App & team (ändra vid behov)
         BUNDLE_ID: "com.yourname.tryggsamtal"
@@ -15,10 +15,10 @@ workflows:
         XCODE_SCHEME: "TryggSamtal"
         IPA_NAME: "TryggSamtal"
 
-        # Exakt namn på dev-identiteten i ditt p12
+        # Exakt namn på dev-identiteten i ditt p12 (justera om din identitet heter annorlunda)
         CODESIGN_ID: "Apple Development: Dane Benjamen"
 
-        # Stig till provisioningprofil i repo
+        # Sökväg till provisioningprofile i repo
         PROFILE_PATH: "profiles/TryggsamtalDev.mobileprovision"
 
     scripts:
@@ -54,26 +54,64 @@ workflows:
           fi
           echo "✅ OpenSSL verified the PKCS#12 successfully"
 
-      - name: Inject Apple Development .p12 into keychain
+      - name: Inject Apple Development .p12 into keychain (robust)
         script: |
           set -e
-          echo ">>> Importing Apple Development certificate..."
+          echo ">>> Importing Apple Development certificate (with legacy repack fallback)..."
+
+          # 1) Skriv p12 från env
           echo "$CERT_P12_B64" | base64 --decode > ios_dev.p12
-          security create-keychain -p "" build.keychain
-          security import ios_dev.p12 \
-            -k ~/Library/Keychains/build.keychain \
-            -P "$CERT_P12_PASSWORD" \
-            -T /usr/bin/codesign -T /usr/bin/security
+
+          # 2) Försök importera direkt
+          if security import ios_dev.p12 \
+              -k ~/Library/Keychains/build.keychain \
+              -P "$CERT_P12_PASSWORD" \
+              -T /usr/bin/codesign -T /usr/bin/security; then
+            echo "✅ Direct security import succeeded"
+          else
+            echo "⚠️ Direct import failed; attempting legacy repack using OpenSSL..."
+
+            # 3) Packa upp till PEM-delar (privat nyckel + cert)
+            openssl pkcs12 -in ios_dev.p12 \
+              -passin pass:"$CERT_P12_PASSWORD" \
+              -nodes -out unpack.pem
+
+            awk '/BEGIN CERTIFICATE/{flag=1} flag{print} /END CERTIFICATE/{flag=0}' unpack.pem > cert.pem
+            awk '/BEGIN PRIVATE KEY/{flag=1} flag{print} /END PRIVATE KEY/{flag=0}' unpack.pem > key.pem
+
+            # 4) Skapa legacy-kompatibel p12 med temporärt lösen
+            LEGACY_PASS="Temp12345"
+            openssl pkcs12 -export -legacy \
+              -inkey key.pem \
+              -in cert.pem \
+              -name "${CODESIGN_ID}" \
+              -passout pass:"$LEGACY_PASS" \
+              -out ios_dev_legacy.p12
+
+            # 5) Importera legacy-p12
+            security import ios_dev_legacy.p12 \
+              -k ~/Library/Keychains/build.keychain \
+              -P "$LEGACY_PASS" \
+              -T /usr/bin/codesign -T /usr/bin/security
+
+            # 6) Städa
+            rm -f unpack.pem cert.pem key.pem ios_dev_legacy.p12
+            echo "✅ Legacy repack & import succeeded"
+          fi
+
+          # 7) Aktivera keychain och rättigheter
           security list-keychains -s ~/Library/Keychains/build.keychain
           security default-keychain -s ~/Library/Keychains/build.keychain
           security unlock-keychain -p "" ~/Library/Keychains/build.keychain
           security set-key-partition-list -S apple-tool:,apple: -s -k "" ~/Library/Keychains/build.keychain
+
+          # 8) Verifiera att identiteten finns
           echo ">>> Codesigning identities in keychain:"
           security find-identity -v -p codesigning ~/Library/Keychains/build.keychain || true
           if ! security find-identity -v -p codesigning ~/Library/Keychains/build.keychain | grep -F "${CODESIGN_ID}" >/dev/null; then
-            echo "❌ Expected identity '${CODESIGN_ID}' not found. Adjust CODESIGN_ID or p12."; exit 1
+            echo "❌ Expected identity '${CODESIGN_ID}' not found after import. Adjust CODESIGN_ID or p12."; exit 1
           fi
-          echo "✅ Certificate imported into keychain"
+          echo "✅ Certificate ready for codesigning"
 
       - name: Install provisioning profile (extract UUID)
         script: |
@@ -177,7 +215,7 @@ workflows:
           if [ -z "$IPA" ]; then
             echo "❌ No IPA found to upload"; exit 1
           fi
-          # skriv privata nyckeln till fil (bevarar radbrytningar)
+          # Skriv privata nyckeln till fil (bevarar radbrytningar)
           printf "%s\n" "$APP_STORE_CONNECT_PRIVATE_KEY" > appstore_key.p8
           chmod 600 appstore_key.p8
           echo "Key header: $(head -n 1 appstore_key.p8)"
