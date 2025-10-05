@@ -1,16 +1,21 @@
 import Foundation
+
+/// Minimal stub för att ersätta whisper.cpp-anropen så att projektet bygger.
+/// Byt senare mot en riktig implementation (t.ex. Apple Speech eller whisper.cpp via SPM).
 final class WhisperEngine {
-    private var ctx: UnsafeMutableRawPointer?
-    init?(modelURL: URL) {
-        let path = (modelURL.path as NSString).utf8String
-        guard let ptr = whisper_init_from_file(path) else { return nil }
-        self.ctx = ptr
+
+    /// Behåller signaturen `init?(path:)` om den anropas någonstans.
+    init?(path: String) {
+        // Ingen modell krävs i stubben – alltid returnera en instans.
     }
-    deinit { if let c = ctx { whisper_free_ctx(c) } }
-    func transcribeChunk(pcm: [Float]) -> String {
-        guard let c = ctx else { return "" }
-        if let s = whisper_process_short(c, pcm, Int32(pcm.count)) {
-            return String(cString: s).trimmingCharacters(in: .whitespacesAndNewlines)
-        } else { return "" }
+
+    deinit {
+        // Ingen native-resurs att frigöra i stubben.
+    }
+
+    /// Behåller signaturen `transcribe(pcm:)` om den används i pipeline.
+    /// Returnerar nil (ingen transkription) – downstream-kod ska tåla detta i PoC.
+    func transcribe(pcm: [Float]) -> String? {
+        return nil
     }
 }
