@@ -64,24 +64,35 @@ workflows:
           fi
 
       - name: Build .ipa
-        script: |
-          echo "Creating export options plist"
-          cat <<EOF > export_options.plist
-            {
-            "method": "development",
-            "teamID": "93397B64RG",
-            "signingStyle": "manual",
-            "provisioningProfiles": {
-            "com.yourname.tryggsamtal": "Tryggsamtal_provision"
-            },
-          "compileBitcode": false
-          }
-          EOF
-          echo "Building IPA"
-          xcode-project build-ipa \
-            --project "$XCODE_PROJECT" \
-            --scheme "$XCODE_SCHEME" \
-            --export-options-plist export_options.plist 
+          script: |
+            echo "Creating export options plist"
+            cat <<'EOF' > export_options.plist
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
+            <dict>
+              <key>method</key>
+              <string>development</string>
+              <key>teamID</key>
+              <string>93397B64RG</string>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>provisioningProfiles</key>
+              <dict>
+                <key>com.yourname.tryggsamtal</key>
+                <string>Tryggsamtal_provision</string>
+              </dict>
+            <key>compileBitcode</key>
+            <false/>
+        </dict>
+        </plist>
+      EOF
+
+    echo "Building IPA"
+    xcode-project build-ipa \
+      --project "$XCODE_PROJECT" \
+      --scheme "$XCODE_SCHEME" \
+      --export-options-plist export_options.plist
 
     artifacts:
       - build/ios/ipa/*.ipa
