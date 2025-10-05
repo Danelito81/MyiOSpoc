@@ -24,9 +24,7 @@ targets:
       - path: Detection
       - path: Services
       - path: Resources
-      - path: vendor/whisper.cpp/whisper.cpp
-      - path: vendor/whisper.cpp/whisper.h
-      - path: vendor/whisper.cpp/ggml
+
     settings:
       base:
         PRODUCT_NAME: TryggSamtal
