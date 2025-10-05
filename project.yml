@@ -6,7 +6,7 @@ options:
 
 settings:
   base:
-    PRODUCT_BUNDLE_IDENTIFIER: com.yourname.tryggsamtal   # <-- BYT (måste matcha profilen)
+    PRODUCT_BUNDLE_IDENTIFIER: com.yourname.tryggsamtal   # <-- BYT
     DEVELOPMENT_TEAM: 93397B64RG                          # <-- BYT
     SWIFT_VERSION: 5.9
     CODE_SIGN_STYLE: Manual
