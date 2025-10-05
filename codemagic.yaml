@@ -11,7 +11,7 @@ workflows:
         XCODE_PROJECT: "TryggSamtal.xcodeproj"
         XCODE_SCHEME: "TryggSamtal"
         IPA_NAME: "TryggSamtal"
-        CODESIGN_ID: "Apple Development"   # håll generiskt
+        CODESIGN_ID: "Apple Development"    # håll generiskt
         PROFILE_PATH: "profiles/TryggsamtalDev.mobileprovision"
         KEYCHAIN_PATH: "$HOME/Library/Keychains/build.keychain-db"
 
@@ -19,7 +19,7 @@ workflows:
       - name: Install tools
         script: |
           brew update || true
-          brew install xcodegen xcbeautify zip unzip openssl || true
+          brew install xcodegen xcbeautify openssl || true
 
       - name: Generate Xcode project via XcodeGen
         script: |
@@ -183,82 +183,78 @@ workflows:
           echo "IPA(s) created:"
           ls -la build/ios/ipa || true
 
+      # === NYTT 1/2: Validera & fixa Info.plist-casing i IPA ===
       - name: Validate & fix IPA Info.plist casing (if needed)
         script: |
           set -e
-          mkdir -p build/ios/ipa
           IPA_ORIG="build/ios/ipa/${IPA_NAME}.ipa"
-          if [ ! -f "$IPA_ORIG" ]; then
-            echo "❌ No IPA to validate at $IPA_ORIG"; exit 1
-          fi
+          test -f "$IPA_ORIG" || { echo "❌ IPA saknas: $IPA_ORIG"; exit 1; }
 
           echo ">>> Inspect original IPA:"
-          unzip -l "$IPA_ORIG" | sed -n '1,120p' || true
+          unzip -l "$IPA_ORIG" | sed -n '1,120p'
 
-          # Om Info.plist redan har korrekt case → kör vidare
-          if unzip -l "$IPA_ORIG" | grep -q 'Payload/.*/Info.plist'; then
-            echo "✅ Correct Info.plist detected. No fix needed."
-            echo "IPA_TO_UPLOAD=$IPA_ORIG" >> $CM_ENV
-            exit 0
-          fi
-
-          # Om felaktig (lowercase) info.plist → packa om robust
-          if unzip -l "$IPA_ORIG" | grep -qi 'Payload/.*/info.plist'; then
+          if unzip -l "$IPA_ORIG" | grep -q "Payload/.*/info.plist"; then
             echo "⚠️ Found lowercase info.plist, rebuilding IPA with proper casing…"
-            WORKDIR="$(mktemp -d)"
-            UNPACK="$WORKDIR/unpacked"
-            mkdir -p "$UNPACK"
-            unzip -q "$IPA_ORIG" -d "$UNPACK"
-
-            APPDIR="$(find "$UNPACK/Payload" -maxdepth 1 -type d -name '*.app' | head -n 1)"
-            if [ -z "$APPDIR" ]; then
-              echo "❌ Could not locate .app inside IPA"; exit 1
-            fi
-
+            WORK="$(mktemp -d)"
+            pushd "$WORK" >/dev/null
+            unzip -q "$OLDPWD/$IPA_ORIG"
+            APPDIR="$(ls -d Payload/*.app)"
             if [ -f "$APPDIR/info.plist" ]; then
               mv "$APPDIR/info.plist" "$APPDIR/Info.plist"
             fi
-
-            IPA_FIXED_ABS="$(cd build/ios/ipa && pwd)/${IPA_NAME}.fixed.ipa"
-            (cd "$UNPACK" && zip -qry "$IPA_FIXED_ABS" Payload)
-
-            echo "✅ Wrote fixed IPA: $IPA_FIXED_ABS"
-            unzip -l "$IPA_FIXED_ABS" | egrep -i 'Payload/.+\.app/(Info\.plist|info\.plist)' || true
-            echo "IPA_TO_UPLOAD=$IPA_FIXED_ABS" >> $CM_ENV
-
-            rm -rf "$WORKDIR"
-            exit 0
+            mkdir -p "$OLDPWD/build/ios/ipa"
+            OUT="$OLDPWD/build/ios/ipa/${IPA_NAME}.fixed.ipa"
+            zip -qry "$OUT" Payload
+            popd >/dev/null
+            rm -rf "$WORK"
+            echo "✅ Repacked IPA: $OUT"
+            echo "IPA_UPLOAD_PATH=$OUT" >> $CM_ENV
+          else
+            echo "✅ Info.plist casing OK"
+            echo "IPA_UPLOAD_PATH=$IPA_ORIG" >> $CM_ENV
           fi
 
-          echo "❌ IPA does not contain Payload/*.app/Info.plist (invalid IPA)."
-          exit 1
-
-      - name: Sanity check Apple ID credentials
-        script: |
-          miss=0
-          for v in APPLE_ID APP_SPECIFIC_PASSWORD; do
-            if [ -z "${!v}" ]; then echo "MISS: $v is empty"; miss=1; else echo "OK: $v present"; fi
-          done
-          [ $miss -eq 0 ] || { echo "❌ Fix APPLE_ID / APP_SPECIFIC_PASSWORD in Codemagic (group 'admin')"; exit 1; }
-
-      - name: Upload to TestFlight (Apple-ID + app-specific password)
+      # === NYTT 2/2: Preflight – verifiera App Store Connect API-nyckeln ===
+      - name: preflight: verify app store connect api access
         script: |
           set -e
-          IPA="${IPA_TO_UPLOAD:-build/ios/ipa/${IPA_NAME}.ipa}"
-          if [ ! -f "$IPA" ]; then
-            echo "❌ IPA not found at $IPA"; exit 1
-          fi
+          for v in APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_KEY_IDENTIFIER APP_STORE_CONNECT_PRIVATE_KEY; do
+            test -n "${!v}" || { echo "❌ Missing $v"; exit 1; }
+          done
 
-          echo "Key auth: using Apple-ID + App-specific password (no API keys)"
+          # Normalisera .p8 från env → appstore_key.p8
+          printf "%s" "$APP_STORE_CONNECT_PRIVATE_KEY" > appstore_key.raw
+          tr -d '\r' < appstore_key.raw > appstore_key.nocr
+          sed -e '1s/^"//' -e '$s/"$//' appstore_key.nocr > appstore_key.stripped
+          if grep -q '\\n' appstore_key.stripped; then
+            printf "%b" "$(cat appstore_key.stripped)" > appstore_key.p8
+          else
+            cp appstore_key.stripped appstore_key.p8
+          fi
+          chmod 600 appstore_key.p8
+          head -n 1 appstore_key.p8; tail -n 1 appstore_key.p8
+
+          # Enkel ping mot API: lista appar (ingen känslig output)
+          app-store-connect apps \
+            --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
+            --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
+            --private-key appstore_key.p8 --json >/dev/null
+
+          echo "✅ App Store Connect API key ok"
+
+      - name: Upload to TestFlight (pass PEM content, minimal flags)
+        script: |
+          set -e
+          test -n "$IPA_UPLOAD_PATH" || IPA_UPLOAD_PATH="build/ios/ipa/${IPA_NAME}.ipa"
           echo ">>> Uploading to TestFlight"
           app-store-connect publish \
-            --path "$IPA" \
-            --apple-id "$APPLE_ID" \
-            --password "$APP_SPECIFIC_PASSWORD" \
+            --path "$IPA_UPLOAD_PATH" \
+            --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
+            --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
+            --private-key appstore_key.p8 \
             --platform IOS \
             --testflight \
-            --verbose || { echo "❌ Upload failed"; exit 1; }
-
+            --verbose
           echo "✅ Upload queued."
 
     artifacts:
