@@ -25,11 +25,13 @@ workflows:
     scripts:
       - name: Install tools
         script: |
+          set -e
           brew update || true
           brew install xcodegen xcbeautify openssl || true
 
       - name: Generate Xcode project via XcodeGen
         script: |
+          set -e
           echo "PWD:" && pwd
           ls -la
           if [ -f project.yml ]; then
@@ -39,7 +41,6 @@ workflows:
           fi
           test -f "TryggSamtal.xcodeproj/project.pbxproj" || { echo "❌ XcodeGen failed"; exit 1; }
 
-      # ⭐ NYTT, mer robust steg för Base64-normalisering/validering
       - name: Normalize & verify DIST_P12_BASE64
         script: |
           set -e
@@ -47,47 +48,41 @@ workflows:
             echo "❌ Missing DIST_P12_BASE64 or DIST_P12_PASSWORD"; exit 1
           fi
 
-          # Spara råinnehåll som vi får från Codemagic UI (kan innehålla \n, citattecken mm)
+          # Spara råsträngen precis som den kommer från CM UI
           printf "%s" "$DIST_P12_BASE64" > dist_p12.raw.txt
 
+          # Kör en liten Python-normalisering via here-doc (korrekt indenterad)
           python3 - <<'PY'
-import base64, re, sys, json
-
+import base64, re, sys
 raw = open("dist_p12.raw.txt","rb").read().decode("utf-8","ignore")
 
-# 1) Trimma, ta bort BOM, citattecken och whitespace
+# Trimma, ta bort citattecken/BOM/whitespace
 s = raw.strip().strip('"').strip("'")
 
-# 2) Ta bort ev. data-URI prefix
+# Ta bort ev. data-URI prefix
 s = re.sub(r'^\s*data:[^;]+;base64,', '', s, flags=re.I)
 
-# 3) Ersätt escaped radbrytningar "\n" med riktiga, och rensa nya rader/whitespace
+# Gör om escaped radbrytningar till inget (vi vill ha en sammanhängande sträng)
 s = s.replace("\\n", "").replace("\\r", "")
+# Ta bort alla whitespace
 s = re.sub(r'\s+', '', s)
 
-# 4) Om URL-safe base64 -> konvertera till standard
-s_std = s.replace('-', '+').replace('_', '/')
+# URL-safe till standard
+s = s.replace('-', '+').replace('_', '/')
 
-# 5) Lägg till padding (=) om den saknas
-pad = (-len(s_std)) % 4
-s_std += "=" * pad
+# Lägg till padding
+pad = (-len(s)) % 4
+s += "=" * pad
 
-# 6) Försök dekoda utan "validate" först (vissa verktyg producerar radbrytningar som redan togs bort)
 try:
-    blob = base64.b64decode(s_std, validate=False)
+    blob = base64.b64decode(s, validate=False)
 except Exception as e:
-    print("❌ Base64 decode failed (after normalization):", e)
-    print("   length:", len(s_std), "mod4:", len(s_std)%4)
+    print("❌ Base64 decode failed:", e)
+    print("   length:", len(s), "mod4:", len(s)%4)
     sys.exit(1)
 
-# 7) Lagra P12
 open("ios_dist.p12","wb").write(blob)
-
-# Lite diagnostik
-print("✅ Base64 normalized & decoded")
-print("   raw_len   =", len(raw))
-print("   clean_len =", len(s_std))
-print("   ends_with =", s_std[-2:])
+print("✅ Base64 normalized & decoded (bytes:", len(blob), ")")
 PY
 
           echo ">>> Checking PKCS12 with provided password..."
@@ -111,7 +106,6 @@ PY
         script: |
           set -e
           echo ">>> Importing Apple Distribution certificate..."
-          # Försök direkt
           if security import ios_dist.p12 -k "$KEYCHAIN_PATH" -P "$DIST_P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security; then
             echo "✅ Direct security import succeeded"
           else
@@ -125,14 +119,15 @@ PY
             rm -f dist_extracted.pem dist_cert.pem dist_key.pem
             echo "✅ Imported certificate and private key separately"
           fi
-          echo ">>> Identities:"
+
+          echo ">>> Identities in keychain:"
           security find-identity -v -p codesigning "$KEYCHAIN_PATH" || true
 
           echo ">>> Setting key partition list…"
           security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN_PATH"
           echo "✅ Key partition list set"
 
-      - name: Install provisioning profiles (DIST + DEV)
+      - name: Install provisioning profiles (DIST + optional DEV)
         script: |
           set -e
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
@@ -253,7 +248,6 @@ PY
             cp "$IPA" "build/ios/ipa/${IPA_NAME}.fixed.ipa"
           fi
 
-      # Ladda upp med API-nyckel om den finns; annars hoppa över detta steg (vi kan då använda Apple-ID-steg vi redan har)
       - name: Upload to TestFlight (API key if provided)
         script: |
           set -e
