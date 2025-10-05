@@ -191,7 +191,7 @@ workflows:
           done
           [ $miss -eq 0 ] || { echo "❌ Fix missing env vars in Codemagic → Environment variables (group 'admin')"; exit 1; }
 
-      - name: Upload to TestFlight (verbose logs only)
+      - name: Upload to TestFlight (PEM-innehåll + verbose logg)
         script: |
           set -e
           IPA="$(ls build/ios/ipa/*.ipa 2>/dev/null | head -n 1)"
@@ -199,34 +199,52 @@ workflows:
             echo "❌ No IPA found to upload"; exit 1
           fi
 
-          # Skriv privata nyckeln som är redan PEM-format i env (ingen normalisering här)
-          printf "%s\n" "$APP_STORE_CONNECT_PRIVATE_KEY" > appstore_key.p8
-          chmod 600 appstore_key.p8
+          # Normalisera env-nyckeln och skicka INNEHÅLLET (inte filväg)
+          printf "%s" "$APP_STORE_CONNECT_PRIVATE_KEY" > appstore_key.raw
+          tr -d '\r' < appstore_key.raw > appstore_key.nocr
+          sed -e '1s/^"//' -e '$s/"$//' appstore_key.nocr > appstore_key.stripped
+          if grep -q '\\n' appstore_key.stripped; then
+            printf "%b" "$(cat appstore_key.stripped)" > appstore_key.norm
+          else
+            cp appstore_key.stripped appstore_key.norm
+          fi
+          if ! grep -q "BEGIN PRIVATE KEY" appstore_key.norm; then
+            { echo "-----BEGIN PRIVATE KEY-----"
+              fold -w 64 appstore_key.norm
+              echo "-----END PRIVATE KEY-----"; } > appstore_key.p8
+          else
+            cat appstore_key.norm > appstore_key.p8 && echo >> appstore_key.p8
+          fi
+
+          # Validera PEM
+          if ! openssl pkey -in appstore_key.p8 -noout >/dev/null 2>&1; then
+            echo "❌ APP_STORE_CONNECT_PRIVATE_KEY is not a valid PEM."
+            head -n 4 appstore_key.p8 || true
+            tail -n 4 appstore_key.p8 || true
+            exit 1
+          fi
+          PEM_CONTENT="$(cat appstore_key.p8)"
           echo "Key header: $(head -n 1 appstore_key.p8)"
           echo "Key footer: $(tail -n 1 appstore_key.p8)"
 
-          # Kör med maximal verbositet och skriv allt till en fil + stdout
+          # Verbos loggning → fil + stdout
           set -o pipefail
           app-store-connect publish \
             --path "$IPA" \
             --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
             --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
-            --private-key appstore_key.p8 \
+            --private-key "$PEM_CONTENT" \
             --platform IOS \
             --testflight \
             --verbose \
             --log-stream stdout \
             2>&1 | tee appstore_publish.log
-
+          
           EXIT_CODE=${PIPESTATUS[0]}
           echo ">>> app-store-connect exit code: $EXIT_CODE"
-          echo ">>> Last 200 lines of appstore_publish.log (for debugging):"
+          echo ">>> Last 200 lines of appstore_publish.log:"
           tail -n 200 appstore_publish.log || true
-
-          if [ $EXIT_CODE -ne 0 ]; then
-            echo "❌ TestFlight upload failed"; exit $EXIT_CODE
-          fi
-
+          [ $EXIT_CODE -eq 0 ] || { echo "❌ TestFlight upload failed"; exit $EXIT_CODE; }
           echo "✅ Upload queued."
 
     artifacts:
