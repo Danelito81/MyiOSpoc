@@ -16,12 +16,12 @@ workflows:
         KEYCHAIN_PATH: "$HOME/Library/Keychains/build.keychain-db"
 
     scripts:
-      - name: "Install tools"
+      - name: Install tools
         script: |
           brew update || true
           brew install xcodegen xcbeautify openssl || true
 
-      - name: "Generate Xcode project via XcodeGen"
+      - name: Generate Xcode project via XcodeGen
         script: |
           echo "PWD:" && pwd
           ls -la
@@ -32,7 +32,7 @@ workflows:
           fi
           test -f "TryggSamtal.xcodeproj/project.pbxproj" || { echo "❌ XcodeGen failed"; exit 1; }
 
-      - name: "Diagnose p12 env payload"
+      - name: Diagnose p12 env payload
         script: |
           set -e
           echo ">>> Validating CERT_P12_B64 and CERT_P12_PASSWORD..."
@@ -48,7 +48,7 @@ workflows:
           fi
           echo "✅ OpenSSL verified the PKCS#12 successfully"
 
-      - name: "Create and configure keychain (no partition-list yet)"
+      - name: Create and configure keychain (no partition-list yet)
         script: |
           set -e
           echo ">>> Creating keychain at $KEYCHAIN_PATH"
@@ -58,30 +58,22 @@ workflows:
           security unlock-keychain -p "" "$KEYCHAIN_PATH"
           echo "✅ Keychain created & set as default"
 
-      - name: "Inject Apple Development .p12 into keychain (robust, no heredocs)"
+      - name: Inject Apple Development .p12 into keychain (robust, no heredocs)
         script: |
           set -e
           echo ">>> Importing Apple Development certificate..."
           echo "$CERT_P12_B64" | base64 --decode > ios_dev.p12
 
-          # Försök direkt import av .p12
           if security import ios_dev.p12 -k "$KEYCHAIN_PATH" -P "$CERT_P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security; then
             echo "✅ Direct security import succeeded"
           else
             echo "⚠️ Direct import failed; extracting cert+key PEM and importing separately..."
-            # Extrahera cert + privat nyckel
             openssl pkcs12 -in ios_dev.p12 -passin pass:"$CERT_P12_PASSWORD" -nodes -clcerts -out extracted.pem
-
-            # Skriv cert
             awk 'BEGIN{p=0} /BEGIN CERTIFICATE/{p=1} p{print} /END CERTIFICATE/{p=0}' extracted.pem > dev_cert.pem
-            # Skriv key
             awk 'BEGIN{p=0} /BEGIN PRIVATE KEY/{p=1} p{print} /END PRIVATE KEY/{p=0}' extracted.pem > dev_key.pem
-
-            # Importera cert och nyckel separat
             security import dev_cert.pem -k "$KEYCHAIN_PATH" -T /usr/bin/codesign -T /usr/bin/security
             security import dev_key.pem  -k "$KEYCHAIN_PATH" -P "" -A -t private -f pem || \
             security import dev_key.pem  -k "$KEYCHAIN_PATH" -P "" -A -T /usr/bin/codesign -T /usr/bin/security
-
             rm -f extracted.pem dev_cert.pem dev_key.pem
             echo "✅ Imported certificate and private key separately"
           fi
@@ -91,12 +83,11 @@ workflows:
           if ! security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep -F "Apple Development" >/dev/null; then
             echo "❌ No 'Apple Development' identity found after import."; exit 1
           fi
-
           echo ">>> Setting key partition list…"
           security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN_PATH"
           echo "✅ Key partition list set"
 
-      - name: "Install provisioning profile (extract UUID)"
+      - name: Install provisioning profile (extract UUID)
         script: |
           set -e
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
@@ -118,7 +109,7 @@ workflows:
           echo "PROVISIONING_PROFILE_UUID=$UUID" >> $CM_ENV
           ls -la "$HOME/Library/MobileDevice/Provisioning Profiles"
 
-      - name: "Build .ipa (archive + export)"
+      - name: Build .ipa (archive + export)
         script: |
           set -e
           test -n "$PROVISIONING_PROFILE_UUID" || { echo "❌ Missing PROVISIONING_PROFILE_UUID"; exit 1; }
@@ -183,7 +174,7 @@ workflows:
           echo "IPA(s) created:"
           ls -la build/ios/ipa || true
 
-      - name: "Validate and fix IPA Info.plist casing (if needed)"
+      - name: Validate & fix IPA Info.plist casing (if needed)
         script: |
           set -e
           IPA_ORIG="build/ios/ipa/${IPA_NAME}.ipa"
@@ -199,9 +190,7 @@ workflows:
             pushd "$WORK" >/dev/null
             unzip -q app.ipa
             APPDIR="$(ls -d Payload/*.app)"
-            if [ -f "$APPDIR/info.plist" ]; then
-              mv "$APPDIR/info.plist" "$APPDIR/Info.plist"
-            fi
+            [ -f "$APPDIR/info.plist" ] && mv "$APPDIR/info.plist" "$APPDIR/Info.plist"
             OUT="$OLDPWD/build/ios/ipa/${IPA_NAME}.fixed.ipa"
             zip -qry "$OUT" Payload
             popd >/dev/null
@@ -213,43 +202,72 @@ workflows:
             echo "IPA_UPLOAD_PATH=$IPA_ORIG" >> $CM_ENV
           fi
 
-      - name: "Preflight - verify App Store Connect API access"
+      - name: Preflight - verify App Store Connect API access
         script: |
           set -e
+          # Tillåt alternativ variabel om någon av dem saknas
+          if [ -z "$APP_STORE_CONNECT_PRIVATE_KEY" ] && [ -n "$APP_STORE_CONNECT_PRIVATE_KEY_B64" ]; then
+            APP_STORE_CONNECT_PRIVATE_KEY="$(echo "$APP_STORE_CONNECT_PRIVATE_KEY_B64" | base64 --decode)"
+          fi
+
           for v in APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_KEY_IDENTIFIER APP_STORE_CONNECT_PRIVATE_KEY; do
             test -n "${!v}" || { echo "❌ Missing $v"; exit 1; }
           done
 
-          # Normalisera .p8 från env → appstore_key.p8
-          printf "%s" "$APP_STORE_CONNECT_PRIVATE_KEY" > appstore_key.raw
-          tr -d '\r' < appstore_key.raw > appstore_key.nocr
-          sed -e '1s/^"//' -e '$s/"$//' appstore_key.nocr > appstore_key.stripped
-          if grep -q '\\n' appstore_key.stripped; then
-            printf "%b" "$(cat appstore_key.stripped)" > appstore_key.p8
-          else
-            cp appstore_key.stripped appstore_key.p8
-          fi
-          chmod 600 appstore_key.p8
-          head -n 1 appstore_key.p8; tail -n 1 appstore_key.p8
+          # Normalisera p8 → PEM
+          printf "%s" "$APP_STORE_CONNECT_PRIVATE_KEY" > key.raw
+          tr -d '\r' < key.raw > key.nocr
+          # ta bort ev. omgivande citattecken
+          sed -e '1s/^"//' -e '$s/"$//' key.nocr > key.stripped
 
-          # ✅ Korrekt kommando: apps list
+          # om den innehåller \n-escapes, expandera dem
+          if grep -q '\\n' key.stripped; then
+            printf "%b" "$(cat key.stripped)" > appstore_key.p8
+          else
+            cp key.stripped appstore_key.p8
+          fi
+
+          # om det saknas headers, anta att innehållet är ren base64
+          if ! grep -q "BEGIN PRIVATE KEY" appstore_key.p8; then
+            echo "-----BEGIN PRIVATE KEY-----" > appstore_key.p8.tmp
+            fold -w 64 key.stripped >> appstore_key.p8.tmp
+            echo "-----END PRIVATE KEY-----" >> appstore_key.p8.tmp
+            mv appstore_key.p8.tmp appstore_key.p8
+          fi
+
+          chmod 600 appstore_key.p8
+          echo "Key header: $(head -n 1 appstore_key.p8)"
+          echo "Key footer: $(tail -n 1 appstore_key.p8)"
+          echo "Byte size: $(wc -c < appstore_key.p8)"
+
+          # Verifiera att PEM är giltig
+          if ! openssl pkey -in appstore_key.p8 -noout >/dev/null 2>&1; then
+            echo "❌ Private key is not a valid PEM after normalization. Kontrollera att hela p8-nyckeln (inkl. mittenraderna) finns i env variabeln."
+            exit 2
+          fi
+
+          # CLI förväntar sig PEM-innehållet, inte filnamn
+          PEM_CONTENT="$(cat appstore_key.p8)"
+
           app-store-connect apps list \
             --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
             --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
-            --private-key appstore_key.p8 --json >/dev/null
+            --private-key "$PEM_CONTENT" \
+            --json >/dev/null
 
           echo "✅ App Store Connect API key ok"
 
-      - name: "Upload to TestFlight (pass PEM content, minimal flags)"
+      - name: Upload to TestFlight (pass PEM content, minimal flags)
         script: |
           set -e
           test -n "$IPA_UPLOAD_PATH" || IPA_UPLOAD_PATH="build/ios/ipa/${IPA_NAME}.ipa"
           echo ">>> Uploading to TestFlight"
+          PEM_CONTENT="$(cat appstore_key.p8)"
           app-store-connect publish \
             --path "$IPA_UPLOAD_PATH" \
             --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
             --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
-            --private-key appstore_key.p8 \
+            --private-key "$PEM_CONTENT" \
             --platform IOS \
             --testflight \
             --verbose
