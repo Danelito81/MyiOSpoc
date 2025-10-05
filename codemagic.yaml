@@ -14,6 +14,8 @@ workflows:
         CODESIGN_ID: "Apple Development"  # håll generiskt
         PROFILE_PATH: "profiles/TryggsamtalDev.mobileprovision"
         KEYCHAIN_PATH: "$HOME/Library/Keychains/build.keychain-db"
+        # (valfri) sätt denna om du har flera teams i App Store Connect:
+        # ASC_PROVIDER: "DinProviderShortName"
 
     scripts:
       - name: Install tools
@@ -206,7 +208,6 @@ workflows:
           mkdir -p "$(pwd)/build/ios/ipa"
           FIXED_IPA="$(pwd)/build/ios/ipa/${IPA_NAME}.fixed.ipa"
           (cd "$WORKDIR" && zip -qry "$FIXED_IPA" .)
-          # Ersätt originalet
           mv -f "$FIXED_IPA" "$IPA_PATH"
 
           echo ">>> Inspect fixed IPA:"
@@ -224,13 +225,9 @@ workflows:
           done
           [ $miss -eq 0 ] || { echo "❌ Fix missing env vars in Codemagic → Environment variables (group 'admin')"; exit 1; }
 
-      - name: Upload to TestFlight (PEM-innehåll + verbose logg)
+      - name: Preflight: verify App Store Connect API auth & providers
         script: |
           set -e
-          IPA="$(ls build/ios/ipa/*.ipa 2>/dev/null | head -n 1)"
-          [ -n "$IPA" ] || { echo "❌ No IPA found to upload"; exit 1; }
-
-          # Normalisera env-nyckeln och skicka INNEHÅLLET (inte filväg)
           printf "%s" "$APP_STORE_CONNECT_PRIVATE_KEY" > appstore_key.raw
           tr -d '\r' < appstore_key.raw > appstore_key.nocr
           sed -e '1s/^"//' -e '$s/"$//' appstore_key.nocr > appstore_key.stripped
@@ -246,34 +243,46 @@ workflows:
           else
             cat appstore_key.norm > appstore_key.p8 && echo >> appstore_key.p8
           fi
+          openssl pkey -in appstore_key.p8 -noout >/dev/null 2>&1 || { echo "❌ Invalid PEM"; exit 1; }
 
-          if ! openssl pkey -in appstore_key.p8 -noout >/dev/null 2>&1; then
-            echo "❌ APP_STORE_CONNECT_PRIVATE_KEY is not a valid PEM."
-            head -n 4 appstore_key.p8 || true
-            tail -n 4 appstore_key.p8 || true
-            exit 1
+          echo ">>> Listing providers via altool…"
+          if PROV_JSON="$(xcrun altool --list-providers --apiKey "$APP_STORE_CONNECT_KEY_IDENTIFIER" --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID" 2>/dev/null)"; then
+            echo "$PROV_JSON"
+            # Försök plocka första providerShortName om bara en hittades
+            SHORTS=$(echo "$PROV_JSON" | sed -n 's/.*"providerShortName"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+            COUNT=$(echo "$SHORTS" | wc -l | tr -d ' ')
+            if [ -z "$ASC_PROVIDER" ] && [ "$COUNT" = "1" ]; then
+              FIRST=$(echo "$SHORTS" | head -n1)
+              echo "ASC_PROVIDER=$FIRST" | tee -a $CM_ENV
+              echo "✅ Using ASC_PROVIDER=$FIRST"
+            else
+              echo "ℹ️ Providers found: $COUNT"
+              [ -n "$ASC_PROVIDER" ] && echo "Using ASC_PROVIDER from env: $ASC_PROVIDER"
+              [ "$COUNT" -gt 1 ] && [ -z "$ASC_PROVIDER" ] && echo "⚠️ Multiple providers found. Set ASC_PROVIDER in Codemagic env."
+            fi
+          else
+            echo "⚠️ Could not list providers (altool). Continuing; upload may still work."
           fi
-          PEM_CONTENT="$(cat appstore_key.p8)"
-          echo "Key header: $(head -n 1 appstore_key.p8)"
-          echo "Key footer: $(tail -n 1 appstore_key.p8)"
 
+      - name: Upload to TestFlight (direct altool)
+        script: |
+          set -e
+          IPA="$(ls build/ios/ipa/*.ipa 2>/dev/null | head -n 1)"
+          [ -n "$IPA" ] || { echo "❌ No IPA found to upload"; exit 1; }
+
+          # Bygg args
+          ARGS=(--upload-app --file "$IPA" --type ios --apiKey "$APP_STORE_CONNECT_KEY_IDENTIFIER" --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID" --output-format json)
+          if [ -n "$ASC_PROVIDER" ]; then
+            ARGS+=(--asc-provider "$ASC_PROVIDER")
+          fi
+
+          echo ">>> Running: xcrun altool ${ARGS[*]}"
           set -o pipefail
-          app-store-connect publish \
-            --path "$IPA" \
-            --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
-            --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
-            --private-key "$PEM_CONTENT" \
-            --platform IOS \
-            --testflight \
-            --verbose \
-            --log-stream stdout 2>&1 | tee appstore_publish.log
-          
-          EXIT_CODE=${PIPESTATUS[0]}
-          echo ">>> app-store-connect exit code: $EXIT_CODE"
-          echo ">>> Last 200 lines of appstore_publish.log:"
-          tail -n 200 appstore_publish.log || true
-          [ $EXIT_CODE -eq 0 ] || { echo "❌ TestFlight upload failed"; exit $EXIT_CODE; }
-          echo "✅ Upload queued."
+          xcrun altool "${ARGS[@]}" | tee altool_upload.json
+          EXIT=${PIPESTATUS[0]}
+          echo "altool exit code: $EXIT"
+          [ $EXIT -eq 0 ] || { echo "❌ Upload failed (see altool_upload.json)"; exit $EXIT; }
+          echo "✅ Upload submitted to App Store Connect."
 
     artifacts:
       - build/ios/ipa/*.ipa
@@ -282,4 +291,4 @@ workflows:
       - xcodebuild_export.log
       - ipa_contents_before.txt
       - ipa_contents_after.txt
-      - appstore_publish.log
+      - altool_upload.json
