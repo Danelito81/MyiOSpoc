@@ -19,7 +19,7 @@ workflows:
       - name: Install tools
         script: |
           brew update || true
-          brew install xcodegen xcbeautify || true
+          brew install xcodegen xcbeautify openssl || true
 
       - name: Generate Xcode project via XcodeGen
         script: |
@@ -192,17 +192,53 @@ workflows:
           done
           [ $miss -eq 0 ] || { echo "❌ Fix missing env vars in Codemagic → Environment variables (group 'admin')"; exit 1; }
 
-      - name: Upload to TestFlight
+      - name: Upload to TestFlight (max-robust .p8 normalization)
         script: |
           set -e
           IPA="$(ls build/ios/ipa/*.ipa 2>/dev/null | head -n 1)"
           if [ -z "$IPA" ]; then
             echo "❌ No IPA found to upload"; exit 1
           fi
-          printf "%s\n" "$APP_STORE_CONNECT_PRIVATE_KEY" > appstore_key.p8
+
+          # 1) Skriv rånyckeln som den kommer från env
+          printf "%s" "$APP_STORE_CONNECT_PRIVATE_KEY" > appstore_key.raw
+
+          # 2) Ta bort ev. CR (Windows-radbrytningar) och omslutande citattecken
+          tr -d '\r' < appstore_key.raw > appstore_key.nocr
+          sed -e '1s/^"//' -e '$s/"$//' appstore_key.nocr > appstore_key.stripped
+
+          # 3) Om nyckeln innehåller '\n' som text → konvertera till riktiga radbrytningar
+          if grep -q '\\n' appstore_key.stripped; then
+            printf "%b" "$(cat appstore_key.stripped)" > appstore_key.norm
+          else
+            cp appstore_key.stripped appstore_key.norm
+          fi
+
+          # 4) Säkerställ att vi har en riktig PEM med headers.
+          if ! grep -q "BEGIN PRIVATE KEY" appstore_key.norm; then
+            echo "PEM header saknas – antar att env är ren base64. Kapslar in i PEM och radbryter 64-teckenrader…"
+            {
+              echo "-----BEGIN PRIVATE KEY-----"
+              fold -w 64 appstore_key.norm
+              echo "-----END PRIVATE KEY-----"
+            } > appstore_key.p8
+          else
+            # redan PEM – se till att sista raden slutar med newline
+            cat appstore_key.norm > appstore_key.p8
+            echo >> appstore_key.p8
+          fi
+
           chmod 600 appstore_key.p8
-          echo "Key header: $(head -n 1 appstore_key.p8)"
-          echo "Key footer: $(tail -n 1 appstore_key.p8)"
+          echo "Key header: $(head -n 1 appstore_key.p8 || true)"
+          echo "Key footer: $(tail -n 1 appstore_key.p8 || true)"
+
+          # 5) Validera att det är en giltig PKCS#8 PEM (EC- eller RSA-nyckel)
+          if ! openssl pkey -in appstore_key.p8 -noout >/dev/null 2>&1; then
+            echo "❌ APP_STORE_CONNECT_PRIVATE_KEY is not a valid PEM after normalization."
+            echo "Debug (first 4 lines):"; head -n 4 appstore_key.p8 || true
+            echo "Debug (last 4 lines):"; tail -n 4 appstore_key.p8 || true
+            exit 1
+          fi
 
           echo ">>> Uploading to TestFlight"
           app-store-connect publish \
