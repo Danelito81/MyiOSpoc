@@ -30,9 +30,20 @@ workflows:
         script: |
           echo ">>> Installing local .mobileprovision"
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          cp profiles/*.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/"
+
+          # Copy file
+          PROFILE_PATH=$(ls profiles/*.mobileprovision | head -n 1)
+          echo "Found profile: $PROFILE_PATH"
+
+          # Extract UUID from profile (this becomes filename that Xcode expects)
+          UUID=$(grep -a -o '<key>UUID</key>[[:space:]]*<string>[A-Z0-9\-]*' "$PROFILE_PATH" | sed -E 's/.*<string>(.*)<\/string>/\1/')
+          echo "Extracted UUID: $UUID"
+
+          cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision"
+
           echo ">>> Installed profiles:"
           ls -la "$HOME/Library/MobileDevice/Provisioning Profiles"
+
 
       - name: Build .ipa
         script: |
