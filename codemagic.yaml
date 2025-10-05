@@ -1,50 +1,46 @@
 workflows:
   ios_poc:
-    name: iOS TryggSamtal PoC
+    name: "iOS TryggSamtal PoC"
     environment:
       xcode: latest
       vars:
-        # ====== BYT DESSA TILL DINA RIKTIGA VÄRDEN ======
         BUNDLE_ID: "com.yourname.tryggsamtal"
         TEAM_ID: "93397B64RG"
         XCODE_PROJECT: "TryggSamtal.xcodeproj"
         XCODE_SCHEME: "TryggSamtal"
         IPA_NAME: "TryggSamtal"
-        # Pinna exakt signeringsidentitet (matcha ditt .p12)
         CODESIGN_ID: "Apple Development: Dane Benjamen"
-        # =================================================
-      # Sätt dessa som Secure env vars i Codemagic UI (inte i git):
+      # Lägg in dessa i Codemagic UI som secure env vars:
       # APP_STORE_CONNECT_ISSUER_ID
       # APP_STORE_CONNECT_KEY_IDENTIFIER
       # APP_STORE_CONNECT_PRIVATE_KEY
-      # (valfritt) TESTFLIGHT_RELEASE_NOTES
+      # TESTFLIGHT_RELEASE_NOTES (valfritt)
 
     scripts:
-      - name: Install tools
+      - name: "Install tools"
         script: |
           brew update || true
           brew install xcodegen xcbeautify || true
 
-      - name: Generate Xcode project via XcodeGen
+      - name: "Generate Xcode project via XcodeGen"
         script: |
           echo "PWD:" && pwd
           ls -la
           xcodegen generate --spec project.yml
-          test -f "TryggSamtal.xcodeproj/project.pbxproj" || { echo "XcodeGen failed"; exit 1; }
+          if [ ! -f "TryggSamtal.xcodeproj/project.pbxproj" ]; then
+            echo "ERROR: XcodeGen failed"; exit 1
+          fi
 
-      - name: Install local provisioning profile (from repo/profiles/)
+      - name: "Install local provisioning profile"
         script: |
           set -e
           echo ">>> Installing .mobileprovision from profiles/"
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-
           PROFILE_PATH=$(ls profiles/*.mobileprovision 2>/dev/null | head -n 1)
           if [ -z "$PROFILE_PATH" ]; then
             echo "No .mobileprovision found in ./profiles"; exit 1
           fi
           echo "Found profile: $PROFILE_PATH"
-
-          # Robust UUID-extraktion
           UUID=$(security cms -D -i "$PROFILE_PATH" | plutil -extract UUID raw -)
           if [ -z "$UUID" ]; then
             echo "Could not extract UUID from $PROFILE_PATH"
@@ -52,29 +48,26 @@ workflows:
             exit 1
           fi
           echo "Extracted UUID: $UUID"
-
           cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision"
           echo "PROVISIONING_PROFILE_UUID=$UUID" >> $CM_ENV
-
           echo ">>> Installed profiles:"
           ls -la "$HOME/Library/MobileDevice/Provisioning Profiles"
 
-      - name: Set up keychain and add uploaded certificates
+      - name: "Set up keychain and add uploaded certificates"
         script: |
           keychain initialize
           keychain add-certificates
 
-      - name: Debug: list code signing identities
+      - name: "Debug list code signing identities"
         script: |
-          echo ">>> Listing code signing identities in build keychain"
+          echo ">>> Listing code signing identities in keychain"
           security find-identity -v -p codesigning ~/Library/codemagic-cli-tools/keychains/*.keychain-db || true
           echo ">>> Expecting to find: $CODESIGN_ID"
-          # Fail tidigt om vår identitet inte finns
           if ! security find-identity -v -p codesigning ~/Library/codemagic-cli-tools/keychains/*.keychain-db | grep -F "$CODESIGN_ID" >/dev/null; then
-            echo "ERROR: Codesign identity '$CODESIGN_ID' not found in keychain. Ensure you uploaded the correct .p12 with private key and set its password in Codemagic."; exit 1
+            echo "ERROR: Codesign identity '$CODESIGN_ID' not found in keychain"; exit 1
           fi
 
-      - name: Build .ipa (archive + export)
+      - name: "Build .ipa (archive + export)"
         script: |
           set -e
           test -n "$PROVISIONING_PROFILE_UUID" || { echo "Missing PROVISIONING_PROFILE_UUID"; exit 1; }
@@ -120,8 +113,8 @@ workflows:
 
           ARCHIVE_STATUS=$?
           if [ $ARCHIVE_STATUS -ne 0 ]; then
-            echo ">>> xcodebuild archive failed (status $ARCHIVE_STATUS). Last 150 lines:"
-            tail -n 150 xcodebuild_archive.log
+            echo ">>> xcodebuild archive failed (status $ARCHIVE_STATUS). Last 100 lines:"
+            tail -n 100 xcodebuild_archive.log
             exit $ARCHIVE_STATUS
           fi
 
@@ -132,18 +125,16 @@ workflows:
             -exportPath build/ios/ipa \
             | xcbeautify
 
-      - name: Publish to TestFlight
+      - name: "Publish to TestFlight"
         script: |
           set -e
           IPA="$(ls build/ios/ipa/*.ipa | head -n 1)"
           test -f "$IPA" || { echo "No IPA to upload"; exit 1; }
-
           for v in APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_KEY_IDENTIFIER APP_STORE_CONNECT_PRIVATE_KEY; do
             if [ -z "${!v}" ]; then
               echo "Missing env var: $v (set as Secure in Workflow settings)"; exit 1
             fi
           done
-
           echo ">>> Uploading to TestFlight"
           app-store-connect publish \
             --path "$IPA" \
