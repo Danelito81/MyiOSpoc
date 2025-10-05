@@ -34,18 +34,14 @@ workflows:
 
       - name: Generate Xcode project via XcodeGen
         script: |
-          echo "PWD:"
-          pwd
-          echo "List before:"
-          ls -la
+          echo "PWD:" && pwd
+          echo "List before:" && ls -la
           echo "Run XcodeGen:"
-          xcodegen --spec project.yml generate
-          echo "List after:"
-          ls -la
+          xcodegen generate --spec project.yml
+          echo "List after:" && ls -la
           # Kontrollera att projektet verkligen skapades
           if [ ! -f "TryggSamtal.xcodeproj/project.pbxproj" ]; then
             echo "ERROR: XcodeGen skapade inte TryggSamtal.xcodeproj"
-            echo "Tips: Finns project.yml i repo-roten och heter den exakt 'project.yml'?"
             exit 1
           fi
 
