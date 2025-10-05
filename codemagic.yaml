@@ -63,10 +63,25 @@ workflows:
             echo "OK: APP_STORE_CONNECT_PRIVATE_KEY present"
           fi
 
-
       - name: Build .ipa
         script: |
-          xcode-project build-ipa --project "$XCODE_PROJECT" --scheme "$XCODE_SCHEME"
+          echo "Creating export options plist"
+          cat <<EOF > export_options.plist
+            {
+            "method": "development",
+            "teamID": "93397B64RG",
+            "signingStyle": "manual",
+            "provisioningProfiles": {
+            "com.yourname.tryggsamtal": "Tryggsamtal_provision"
+            },
+          "compileBitcode": false
+          }
+          EOF
+          echo "Building IPA"
+          xcode-project build-ipa \
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME" \
+            --export-options-plist export_options.plist 
 
     artifacts:
       - build/ios/ipa/*.ipa
