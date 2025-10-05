@@ -1,149 +1,112 @@
 workflows:
   ios_poc:
-    name: "iOS TryggSamtal PoC"
+    name: iOS TryggSamtal PoC
     environment:
       xcode: latest
       vars:
-        BUNDLE_ID: "com.yourname.tryggsamtal"
-        TEAM_ID: "93397B64RG"
         XCODE_PROJECT: "TryggSamtal.xcodeproj"
         XCODE_SCHEME: "TryggSamtal"
-        IPA_NAME: "TryggSamtal"
-        CODESIGN_ID: "Apple Development: Dane Benjamen"
-      # Lägg in dessa i Codemagic UI som secure env vars:
-      # APP_STORE_CONNECT_ISSUER_ID
-      # APP_STORE_CONNECT_KEY_IDENTIFIER
-      # APP_STORE_CONNECT_PRIVATE_KEY
-      # TESTFLIGHT_RELEASE_NOTES (valfritt)
+        BUNDLE_ID: "com.yourname.tryggsamtal"
+        TEAM_ID: "93397B64RG"
+        PROVISIONING_PROFILE_PATH: "profiles/Tryggsamtal-Dev.mobileprovision"
+        CODESIGN_ID: "Apple Development"
+        APP_STORE_CONNECT_KEY_IDENTIFIER: "<DIN_KEY_ID>"
+        APP_STORE_CONNECT_ISSUER_ID: "<DIN_ISSUER_ID>"
+        APP_STORE_CONNECT_PRIVATE_KEY: Encrypted(...) # Din API key in secret storage
 
     scripts:
-      - name: "Install tools"
+      - name: Install tools
         script: |
           brew update || true
-          brew install xcodegen xcbeautify || true
+          brew install xcodegen || true
+          brew install xcbeautify || true
 
-      - name: "Generate Xcode project via XcodeGen"
+      - name: Generate Xcode project via XcodeGen
         script: |
           echo "PWD:" && pwd
-          ls -la
+          echo "List before:" && ls -la
           xcodegen generate --spec project.yml
+          echo "List after:" && ls -la
           if [ ! -f "TryggSamtal.xcodeproj/project.pbxproj" ]; then
-            echo "ERROR: XcodeGen failed"; exit 1
-          fi
-
-      - name: "Install local provisioning profile"
-        script: |
-          set -e
-          echo ">>> Installing .mobileprovision from profiles/"
-          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          PROFILE_PATH=$(ls profiles/*.mobileprovision 2>/dev/null | head -n 1)
-          if [ -z "$PROFILE_PATH" ]; then
-            echo "No .mobileprovision found in ./profiles"; exit 1
-          fi
-          echo "Found profile: $PROFILE_PATH"
-          UUID=$(security cms -D -i "$PROFILE_PATH" | plutil -extract UUID raw -)
-          if [ -z "$UUID" ]; then
-            echo "Could not extract UUID from $PROFILE_PATH"
-            security cms -D -i "$PROFILE_PATH" | head -n 40
+            echo "ERROR: XcodeGen failed to create TryggSamtal.xcodeproj"
             exit 1
           fi
-          echo "Extracted UUID: $UUID"
-          cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision"
-          echo "PROVISIONING_PROFILE_UUID=$UUID" >> $CM_ENV
-          echo ">>> Installed profiles:"
-          ls -la "$HOME/Library/MobileDevice/Provisioning Profiles"
 
-      - name: "Set up keychain and add uploaded certificates"
+      - name: Install local provisioning profile
+        script: |
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp "$PROVISIONING_PROFILE_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/
+          echo "Installed provisioning profile:"
+          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/
+
+      - name: Set up keychain and add uploaded certificates
         script: |
           keychain initialize
           keychain add-certificates
+          echo ">>> iOS certificates:"
+          ls -la /Users/builder/Library/MobileDevice/Certificates || true
 
-      - name: "Debug list code signing identities"
+      - name: Debug: list code signing identities
         script: |
-          echo ">>> Listing code signing identities in keychain"
+          echo ">>> Listing uploaded .p12 files"
+          ls -la /Users/builder/Library/MobileDevice/Certificates || true
+
+          echo ">>> Listing identities in Codemagic keychain"
           security find-identity -v -p codesigning ~/Library/codemagic-cli-tools/keychains/*.keychain-db || true
+
+          echo ">>> Listing system/login keychains"
+          security find-identity -v -p codesigning /Library/Keychains/System.keychain || true
+          security find-identity -v -p codesigning ~/Library/Keychains/login.keychain-db || true
+
           echo ">>> Expecting to find: $CODESIGN_ID"
           if ! security find-identity -v -p codesigning ~/Library/codemagic-cli-tools/keychains/*.keychain-db | grep -F "$CODESIGN_ID" >/dev/null; then
-            echo "ERROR: Codesign identity '$CODESIGN_ID' not found in keychain"; exit 1
+            echo "ERROR: Codesign identity '$CODESIGN_ID' not found!"
+            echo "Upload correct Apple Development .p12 under Code signing identities in Codemagic."
+            exit 1
           fi
 
-      - name: "Build .ipa (archive + export)"
+      - name: Build .ipa (archive + export)
         script: |
-          set -e
-          test -n "$PROVISIONING_PROFILE_UUID" || { echo "Missing PROVISIONING_PROFILE_UUID"; exit 1; }
-
-          cat > export_options.plist <<PLIST
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key><string>development</string>
-            <key>teamID</key><string>${TEAM_ID}</string>
-            <key>signingStyle</key><string>manual</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>${BUNDLE_ID}</key><string>${PROVISIONING_PROFILE_UUID}</string>
-            </dict>
-            <key>compileBitcode</key><false/>
-          </dict>
-          </plist>
-          PLIST
-
-          echo ">>> Clean"
-          xcodebuild clean \
+          mkdir -p build/ios
+          xcodebuild clean archive \
             -project "$XCODE_PROJECT" \
             -scheme "$XCODE_SCHEME" \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' | xcbeautify
-
-          echo ">>> Archive"
-          set -o pipefail
-          xcodebuild archive \
-            -project "$XCODE_PROJECT" \
-            -scheme "$XCODE_SCHEME" \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
-            -archivePath "build/ios/${IPA_NAME}.xcarchive" \
+            -archivePath build/ios/TryggSamtal.xcarchive \
             CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="${CODESIGN_ID}" \
-            DEVELOPMENT_TEAM="${TEAM_ID}" \
-            PRODUCT_BUNDLE_IDENTIFIER="${BUNDLE_ID}" \
-            PROVISIONING_PROFILE_SPECIFIER="${PROVISIONING_PROFILE_UUID}" \
-            | tee xcodebuild_archive.log | xcbeautify
+            CODE_SIGN_IDENTITY="$CODESIGN_ID" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            PROVISIONING_PROFILE_SPECIFIER="Tryggsamtal-Dev" \
+            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+            | xcbeautify
 
-          ARCHIVE_STATUS=$?
-          if [ $ARCHIVE_STATUS -ne 0 ]; then
-            echo ">>> xcodebuild archive failed (status $ARCHIVE_STATUS). Last 100 lines:"
-            tail -n 100 xcodebuild_archive.log
-            exit $ARCHIVE_STATUS
-          fi
-
-          echo ">>> Export IPA"
           xcodebuild -exportArchive \
-            -archivePath "build/ios/${IPA_NAME}.xcarchive" \
-            -exportOptionsPlist export_options.plist \
+            -archivePath build/ios/TryggSamtal.xcarchive \
+            -exportOptionsPlist <(cat <<EOF
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
+            <dict>
+              <key>method</key><string>development</string>
+              <key>teamID</key><string>${TEAM_ID}</string>
+              <key>signingStyle</key><string>manual</string>
+              <key>provisioningProfiles</key>
+              <dict>
+                <key>${BUNDLE_ID}</key><string>Tryggsamtal-Dev</string>
+              </dict>
+            </dict>
+            </plist>
+            EOF) \
             -exportPath build/ios/ipa \
             | xcbeautify
 
-      - name: "Publish to TestFlight"
+      - name: Upload to TestFlight
         script: |
-          set -e
-          IPA="$(ls build/ios/ipa/*.ipa | head -n 1)"
-          test -f "$IPA" || { echo "No IPA to upload"; exit 1; }
-          for v in APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_KEY_IDENTIFIER APP_STORE_CONNECT_PRIVATE_KEY; do
-            if [ -z "${!v}" ]; then
-              echo "Missing env var: $v (set as Secure in Workflow settings)"; exit 1
-            fi
-          done
-          echo ">>> Uploading to TestFlight"
           app-store-connect publish \
-            --path "$IPA" \
+            --path "build/ios/ipa/TryggSamtal.ipa" \
             --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
             --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
-            --private-key "$APP_STORE_CONNECT_PRIVATE_KEY" \
-            --submit-for-beta-review \
-            --release-notes "${TESTFLIGHT_RELEASE_NOTES:-Codemagic PoC build}"
-          echo "Upload queued on App Store Connect."
+            --private-key "$APP_STORE_CONNECT_PRIVATE_KEY"
 
     artifacts:
       - build/ios/ipa/*.ipa
+      - build/ios/TryggSamtal.xcarchive
