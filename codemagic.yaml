@@ -19,7 +19,7 @@ workflows:
       - name: Install tools
         script: |
           brew update || true
-          brew install xcodegen xcbeautify openssl || true
+          brew install xcodegen xcbeautify zip unzip openssl || true
 
       - name: Generate Xcode project via XcodeGen
         script: |
@@ -71,14 +71,17 @@ workflows:
             echo "⚠️ Direct import failed; extracting cert+key PEM and importing separately..."
             # Extrahera cert + privat nyckel
             openssl pkcs12 -in ios_dev.p12 -passin pass:"$CERT_P12_PASSWORD" -nodes -clcerts -out extracted.pem
-            # Cert
+
+            # Skriv cert
             awk 'BEGIN{p=0} /BEGIN CERTIFICATE/{p=1} p{print} /END CERTIFICATE/{p=0}' extracted.pem > dev_cert.pem
-            # Nyckel
+            # Skriv key
             awk 'BEGIN{p=0} /BEGIN PRIVATE KEY/{p=1} p{print} /END PRIVATE KEY/{p=0}' extracted.pem > dev_key.pem
-            # Importera
+
+            # Importera cert och nyckel separat
             security import dev_cert.pem -k "$KEYCHAIN_PATH" -T /usr/bin/codesign -T /usr/bin/security
             security import dev_key.pem  -k "$KEYCHAIN_PATH" -P "" -A -t private -f pem || \
             security import dev_key.pem  -k "$KEYCHAIN_PATH" -P "" -A -T /usr/bin/codesign -T /usr/bin/security
+
             rm -f extracted.pem dev_cert.pem dev_key.pem
             echo "✅ Imported certificate and private key separately"
           fi
@@ -183,23 +186,52 @@ workflows:
       - name: Validate & fix IPA Info.plist casing (if needed)
         script: |
           set -e
+          mkdir -p build/ios/ipa
           IPA_ORIG="build/ios/ipa/${IPA_NAME}.ipa"
+          if [ ! -f "$IPA_ORIG" ]; then
+            echo "❌ No IPA to validate at $IPA_ORIG"; exit 1
+          fi
+
           echo ">>> Inspect original IPA:"
-          unzip -l "$IPA_ORIG" | sed -n '1,80p'
-          if unzip -l "$IPA_ORIG" | grep -q "Payload/.*/info.plist"; then
+          unzip -l "$IPA_ORIG" | sed -n '1,120p' || true
+
+          # Om Info.plist redan har korrekt case → kör vidare
+          if unzip -l "$IPA_ORIG" | grep -q 'Payload/.*/Info.plist'; then
+            echo "✅ Correct Info.plist detected. No fix needed."
+            echo "IPA_TO_UPLOAD=$IPA_ORIG" >> $CM_ENV
+            exit 0
+          fi
+
+          # Om felaktig (lowercase) info.plist → packa om robust
+          if unzip -l "$IPA_ORIG" | grep -qi 'Payload/.*/info.plist'; then
             echo "⚠️ Found lowercase info.plist, rebuilding IPA with proper casing…"
             WORKDIR="$(mktemp -d)"
-            unzip -q "$IPA_ORIG" -d "$WORKDIR"
-            APPDIR="$(find "$WORKDIR/Payload" -maxdepth 1 -type d -name "*.app" | head -n 1)"
-            mv "$APPDIR/info.plist" "$APPDIR/Info.plist"
-            (cd "$WORKDIR" && zip -qry "../${IPA_NAME}.fixed.ipa" .)
-            mv "${IPA_NAME}.fixed.ipa" "build/ios/ipa/${IPA_NAME}.fixed.ipa"
-            echo "IPA_TO_UPLOAD=build/ios/ipa/${IPA_NAME}.fixed.ipa" >> $CM_ENV
-            echo "✅ Rebuilt IPA with corrected Info.plist casing."
-          else
-            echo "No lowercase info.plist detected."
-            echo "IPA_TO_UPLOAD=$IPA_ORIG" >> $CM_ENV
+            UNPACK="$WORKDIR/unpacked"
+            mkdir -p "$UNPACK"
+            unzip -q "$IPA_ORIG" -d "$UNPACK"
+
+            APPDIR="$(find "$UNPACK/Payload" -maxdepth 1 -type d -name '*.app' | head -n 1)"
+            if [ -z "$APPDIR" ]; then
+              echo "❌ Could not locate .app inside IPA"; exit 1
+            fi
+
+            if [ -f "$APPDIR/info.plist" ]; then
+              mv "$APPDIR/info.plist" "$APPDIR/Info.plist"
+            fi
+
+            IPA_FIXED_ABS="$(cd build/ios/ipa && pwd)/${IPA_NAME}.fixed.ipa"
+            (cd "$UNPACK" && zip -qry "$IPA_FIXED_ABS" Payload)
+
+            echo "✅ Wrote fixed IPA: $IPA_FIXED_ABS"
+            unzip -l "$IPA_FIXED_ABS" | egrep -i 'Payload/.+\.app/(Info\.plist|info\.plist)' || true
+            echo "IPA_TO_UPLOAD=$IPA_FIXED_ABS" >> $CM_ENV
+
+            rm -rf "$WORKDIR"
+            exit 0
           fi
+
+          echo "❌ IPA does not contain Payload/*.app/Info.plist (invalid IPA)."
+          exit 1
 
       - name: Sanity check Apple ID credentials
         script: |
@@ -219,7 +251,6 @@ workflows:
 
           echo "Key auth: using Apple-ID + App-specific password (no API keys)"
           echo ">>> Uploading to TestFlight"
-          # Codemagic-CLI använder internt altool när man loggar in med Apple-ID
           app-store-connect publish \
             --path "$IPA" \
             --apple-id "$APPLE_ID" \
