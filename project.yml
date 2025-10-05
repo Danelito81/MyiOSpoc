@@ -27,6 +27,9 @@ targets:
 
     settings:
       base:
+        DEVELOPMENT_TEAM: 93397B64RG
+        CODE_SIGN_STYLE: Manual
+        PROVISIONING_PROFILE_SPECIFIER: Tryggsamtal_provision
         PRODUCT_NAME: TryggSamtal
         TARGETED_DEVICE_FAMILY: "1"
         IPHONEOS_DEPLOYMENT_TARGET: "16.0"
