@@ -183,7 +183,6 @@ workflows:
           echo "IPA(s) created:"
           ls -la build/ios/ipa || true
 
-      # === TILLÄGG 1/2: Validera och fixa Info.plist-casing i IPA ===
       - name: "Validate and fix IPA Info.plist casing (if needed)"
         script: |
           set -e
@@ -214,7 +213,6 @@ workflows:
             echo "IPA_UPLOAD_PATH=$IPA_ORIG" >> $CM_ENV
           fi
 
-      # === TILLÄGG 2/2: Preflight – verifiera App Store Connect API-åtkomst ===
       - name: "Preflight - verify App Store Connect API access"
         script: |
           set -e
@@ -234,8 +232,8 @@ workflows:
           chmod 600 appstore_key.p8
           head -n 1 appstore_key.p8; tail -n 1 appstore_key.p8
 
-          # Snabb koll mot API (tyst JSON-output)
-          app-store-connect apps \
+          # ✅ Korrekt kommando: apps list
+          app-store-connect apps list \
             --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
             --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
             --private-key appstore_key.p8 --json >/dev/null
