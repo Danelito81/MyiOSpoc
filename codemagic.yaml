@@ -4,17 +4,19 @@ workflows:
     environment:
       xcode: latest
       vars:
-        # ----- BYT TILL DINA VÄRDEN -----
+        # ====== BYT DESSA TILL DINA RIKTIGA VÄRDEN ======
         BUNDLE_ID: "com.yourname.tryggsamtal"
         TEAM_ID: "93397B64RG"
-        XCODE_SCHEME: "TryggSamtal"
         XCODE_PROJECT: "TryggSamtal.xcodeproj"
+        XCODE_SCHEME: "TryggSamtal"
         IPA_NAME: "TryggSamtal"
-        # ---------------------------------
-      # Lägg dessa som Secure env vars i Codemagic UI (Workflow settings → Environment variables):
+        # Pinna exakt signeringsidentitet (matcha ditt .p12)
+        CODESIGN_ID: "Apple Development: Dane Benjamen"
+        # =================================================
+      # Sätt dessa som Secure env vars i Codemagic UI (inte i git):
       # APP_STORE_CONNECT_ISSUER_ID
       # APP_STORE_CONNECT_KEY_IDENTIFIER
-      # APP_STORE_CONNECT_PRIVATE_KEY   (hela .p8-innehållet inkl. BEGIN/END)
+      # APP_STORE_CONNECT_PRIVATE_KEY
       # (valfritt) TESTFLIGHT_RELEASE_NOTES
 
     scripts:
@@ -42,10 +44,12 @@ workflows:
           fi
           echo "Found profile: $PROFILE_PATH"
 
-          # Robust UUID-extraktion (binär mobileprovision → XML → UUID)
+          # Robust UUID-extraktion
           UUID=$(security cms -D -i "$PROFILE_PATH" | plutil -extract UUID raw -)
           if [ -z "$UUID" ]; then
-            echo "Could not extract UUID from $PROFILE_PATH"; security cms -D -i "$PROFILE_PATH" | head -n 40; exit 1
+            echo "Could not extract UUID from $PROFILE_PATH"
+            security cms -D -i "$PROFILE_PATH" | head -n 40
+            exit 1
           fi
           echo "Extracted UUID: $UUID"
 
@@ -57,12 +61,18 @@ workflows:
 
       - name: Set up keychain and add uploaded certificates
         script: |
-          # Kräver att ditt .p12-cert (Apple Development) är uppladdat under:
-          # Settings → Code signing identities → iOS certificates
           keychain initialize
           keychain add-certificates
-          # Debug (frivilligt):
+
+      - name: Debug: list code signing identities
+        script: |
+          echo ">>> Listing code signing identities in build keychain"
           security find-identity -v -p codesigning ~/Library/codemagic-cli-tools/keychains/*.keychain-db || true
+          echo ">>> Expecting to find: $CODESIGN_ID"
+          # Fail tidigt om vår identitet inte finns
+          if ! security find-identity -v -p codesigning ~/Library/codemagic-cli-tools/keychains/*.keychain-db | grep -F "$CODESIGN_ID" >/dev/null; then
+            echo "ERROR: Codesign identity '$CODESIGN_ID' not found in keychain. Ensure you uploaded the correct .p12 with private key and set its password in Codemagic."; exit 1
+          fi
 
       - name: Build .ipa (archive + export)
         script: |
@@ -102,7 +112,7 @@ workflows:
             -destination 'generic/platform=iOS' \
             -archivePath "build/ios/${IPA_NAME}.xcarchive" \
             CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="Apple Development" \
+            CODE_SIGN_IDENTITY="${CODESIGN_ID}" \
             DEVELOPMENT_TEAM="${TEAM_ID}" \
             PRODUCT_BUNDLE_IDENTIFIER="${BUNDLE_ID}" \
             PROVISIONING_PROFILE_SPECIFIER="${PROVISIONING_PROFILE_UUID}" \
@@ -142,7 +152,6 @@ workflows:
             --private-key "$APP_STORE_CONNECT_PRIVATE_KEY" \
             --submit-for-beta-review \
             --release-notes "${TESTFLIGHT_RELEASE_NOTES:-Codemagic PoC build}"
-
           echo "Upload queued on App Store Connect."
 
     artifacts:
