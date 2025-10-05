@@ -6,13 +6,11 @@ options:
 
 settings:
   base:
-    # MÅSTE vara exakt din bundle id (samma som i provisioning-profilen)
     PRODUCT_BUNDLE_IDENTIFIER: com.yourname.tryggsamtal
-    # håll team/provisioning här också för att undvika konflikt
     DEVELOPMENT_TEAM: 93397B64RG
+    SWIFT_VERSION: 5.9
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: Apple Development
-    SWIFT_VERSION: 5.9
     INFOPLIST_FILE: Resources/Info.plist
 
 targets:
@@ -29,8 +27,6 @@ targets:
       - path: Resources
     settings:
       base:
-        # exakt profilnamn (”Name”) från Apple/Codemagic
-        PROVISIONING_PROFILE_SPECIFIER: com.yourname.tryggsamtal
         PRODUCT_NAME: TryggSamtal
         TARGETED_DEVICE_FAMILY: "1"
         IPHONEOS_DEPLOYMENT_TARGET: "16.0"
