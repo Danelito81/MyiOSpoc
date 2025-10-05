@@ -16,12 +16,12 @@ workflows:
         KEYCHAIN_PATH: "$HOME/Library/Keychains/build.keychain-db"
 
     scripts:
-      - name: Install tools
+      - name: "Install tools"
         script: |
           brew update || true
           brew install xcodegen xcbeautify openssl || true
 
-      - name: Generate Xcode project via XcodeGen
+      - name: "Generate Xcode project via XcodeGen"
         script: |
           echo "PWD:" && pwd
           ls -la
@@ -32,7 +32,7 @@ workflows:
           fi
           test -f "TryggSamtal.xcodeproj/project.pbxproj" || { echo "❌ XcodeGen failed"; exit 1; }
 
-      - name: Diagnose p12 env payload
+      - name: "Diagnose p12 env payload"
         script: |
           set -e
           echo ">>> Validating CERT_P12_B64 and CERT_P12_PASSWORD..."
@@ -48,7 +48,7 @@ workflows:
           fi
           echo "✅ OpenSSL verified the PKCS#12 successfully"
 
-      - name: Create and configure keychain (no partition-list yet)
+      - name: "Create and configure keychain (no partition-list yet)"
         script: |
           set -e
           echo ">>> Creating keychain at $KEYCHAIN_PATH"
@@ -58,7 +58,7 @@ workflows:
           security unlock-keychain -p "" "$KEYCHAIN_PATH"
           echo "✅ Keychain created & set as default"
 
-      - name: Inject Apple Development .p12 into keychain (robust, no heredocs)
+      - name: "Inject Apple Development .p12 into keychain (robust, no heredocs)"
         script: |
           set -e
           echo ">>> Importing Apple Development certificate..."
@@ -96,7 +96,7 @@ workflows:
           security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN_PATH"
           echo "✅ Key partition list set"
 
-      - name: Install provisioning profile (extract UUID)
+      - name: "Install provisioning profile (extract UUID)"
         script: |
           set -e
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
@@ -118,7 +118,7 @@ workflows:
           echo "PROVISIONING_PROFILE_UUID=$UUID" >> $CM_ENV
           ls -la "$HOME/Library/MobileDevice/Provisioning Profiles"
 
-      - name: Build .ipa (archive + export)
+      - name: "Build .ipa (archive + export)"
         script: |
           set -e
           test -n "$PROVISIONING_PROFILE_UUID" || { echo "❌ Missing PROVISIONING_PROFILE_UUID"; exit 1; }
@@ -183,8 +183,8 @@ workflows:
           echo "IPA(s) created:"
           ls -la build/ios/ipa || true
 
-      # === NYTT 1/2: Validera & fixa Info.plist-casing i IPA ===
-      - name: Validate & fix IPA Info.plist casing (if needed)
+      # === TILLÄGG 1/2: Validera och fixa Info.plist-casing i IPA ===
+      - name: "Validate and fix IPA Info.plist casing (if needed)"
         script: |
           set -e
           IPA_ORIG="build/ios/ipa/${IPA_NAME}.ipa"
@@ -196,13 +196,13 @@ workflows:
           if unzip -l "$IPA_ORIG" | grep -q "Payload/.*/info.plist"; then
             echo "⚠️ Found lowercase info.plist, rebuilding IPA with proper casing…"
             WORK="$(mktemp -d)"
+            cp "$IPA_ORIG" "$WORK/app.ipa"
             pushd "$WORK" >/dev/null
-            unzip -q "$OLDPWD/$IPA_ORIG"
+            unzip -q app.ipa
             APPDIR="$(ls -d Payload/*.app)"
             if [ -f "$APPDIR/info.plist" ]; then
               mv "$APPDIR/info.plist" "$APPDIR/Info.plist"
             fi
-            mkdir -p "$OLDPWD/build/ios/ipa"
             OUT="$OLDPWD/build/ios/ipa/${IPA_NAME}.fixed.ipa"
             zip -qry "$OUT" Payload
             popd >/dev/null
@@ -214,8 +214,8 @@ workflows:
             echo "IPA_UPLOAD_PATH=$IPA_ORIG" >> $CM_ENV
           fi
 
-      # === NYTT 2/2: Preflight – verifiera App Store Connect API-nyckeln ===
-      - name: preflight: verify app store connect api access
+      # === TILLÄGG 2/2: Preflight – verifiera App Store Connect API-åtkomst ===
+      - name: "Preflight - verify App Store Connect API access"
         script: |
           set -e
           for v in APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_KEY_IDENTIFIER APP_STORE_CONNECT_PRIVATE_KEY; do
@@ -234,7 +234,7 @@ workflows:
           chmod 600 appstore_key.p8
           head -n 1 appstore_key.p8; tail -n 1 appstore_key.p8
 
-          # Enkel ping mot API: lista appar (ingen känslig output)
+          # Snabb koll mot API (tyst JSON-output)
           app-store-connect apps \
             --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
             --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
@@ -242,7 +242,7 @@ workflows:
 
           echo "✅ App Store Connect API key ok"
 
-      - name: Upload to TestFlight (pass PEM content, minimal flags)
+      - name: "Upload to TestFlight (pass PEM content, minimal flags)"
         script: |
           set -e
           test -n "$IPA_UPLOAD_PATH" || IPA_UPLOAD_PATH="build/ios/ipa/${IPA_NAME}.ipa"
