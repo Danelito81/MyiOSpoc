@@ -9,14 +9,11 @@ workflows:
         XCODE_PROJECT: "TryggSamtal.xcodeproj"
         XCODE_SCHEME: "TryggSamtal"
         IPA_NAME: "TryggSamtal"
-        CODESIGN_ID: "Apple Development: Dane Benjamen"
-        PROVISIONING_PROFILE_NAME: "Tryggsamtal-Dev"
+        CODE_SIGN_IDENTITY: "Apple Development: Dane Benjamen"
 
-        # Dessa lägger du som Secure Environment variables i Codemagic UI
-        APP_STORE_CONNECT_ISSUER_ID: Encrypted(ISSUER_ID)
-        APP_STORE_CONNECT_KEY_IDENTIFIER: Encrypted(KEY_ID)
-        APP_STORE_CONNECT_PRIVATE_KEY: Encrypted(PRIVATE_KEY)
-        TESTFLIGHT_RELEASE_NOTES: "Initial build uploaded from Codemagic"
+        APP_STORE_CONNECT_ISSUER_ID: $APP_STORE_CONNECT_ISSUER_ID
+        APP_STORE_CONNECT_KEY_IDENTIFIER: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        APP_STORE_CONNECT_PRIVATE_KEY: $APP_STORE_CONNECT_PRIVATE_KEY
 
     scripts:
       - name: Install tools
@@ -29,8 +26,11 @@ workflows:
           echo "PWD:" && pwd
           ls -la
           xcodegen generate --spec project.yml
-          echo "Generated Xcode project:"
-          ls -la TryggSamtal.xcodeproj || { echo "❌ Missing .xcodeproj"; exit 1; }
+          ls -la
+          if [ ! -f "TryggSamtal.xcodeproj/project.pbxproj" ]; then
+            echo "ERROR: XcodeGen failed to create TryggSamtal.xcodeproj"
+            exit 1
+          fi
 
       - name: Set up keychain and add uploaded certificates
         script: |
@@ -38,56 +38,47 @@ workflows:
           keychain add-certificates
           echo "✅ Certificates added successfully"
 
-      - name: Install provisioning profile
+      - name: Install local provisioning profile
         script: |
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          PROFILE_PATH=$(find $CM_BUILD_DIR -name "*.mobileprovision" | head -1)
-          if [ -z "$PROFILE_PATH" ]; then
-            echo "❌ No provisioning profile found"
-            exit 1
-          fi
-          echo "Found provisioning profile at: $PROFILE_PATH"
-          cp "$PROFILE_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/
+          cp profiles/TryggsamtalDev.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
           echo "✅ Provisioning profile installed"
-
-      - name: Debug list code signing identities
-        script: |
-          security find-identity -v -p codesigning
-          ls ~/Library/MobileDevice/Provisioning\ Profiles/
 
       - name: Build .ipa (archive + export)
         script: |
           set -e
           echo ">>> Clean"
           xcodebuild clean -project "$XCODE_PROJECT" -scheme "$XCODE_SCHEME" | xcbeautify
+
           echo ">>> Archive"
           xcodebuild archive \
             -project "$XCODE_PROJECT" \
             -scheme "$XCODE_SCHEME" \
-            -archivePath build/ios/"$IPA_NAME".xcarchive \
-            CODE_SIGN_IDENTITY="$CODESIGN_ID" \
-            DEVELOPMENT_TEAM="$TEAM_ID" \
-            PROVISIONING_PROFILE_SPECIFIER="$PROVISIONING_PROFILE_NAME" \
-            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
-            CODE_SIGN_STYLE=Manual | xcbeautify
+            -archivePath build/ios/TryggSamtal.xcarchive \
+            CODE_SIGN_STYLE=Manual \
+            "CODE_SIGN_IDENTITY=Apple Development" \
+            DEVELOPMENT_TEAM=$TEAM_ID \
+            PROVISIONING_PROFILE_SPECIFIER="Tryggsamtal-Dev" \
+            PRODUCT_BUNDLE_IDENTIFIER=$BUNDLE_ID | xcbeautify
 
-          echo ">>> Export IPA"
-          mkdir -p build/ios/ipa
+          echo ">>> Export .ipa"
           xcodebuild -exportArchive \
-            -archivePath build/ios/"$IPA_NAME".xcarchive \
-            -exportPath build/ios/ipa \
+            -archivePath build/ios/TryggSamtal.xcarchive \
+            -exportPath build/ios \
             -exportOptionsPlist export_options.plist | xcbeautify
 
       - name: Upload to TestFlight
         script: |
           echo ">>> Uploading to TestFlight..."
-          app-store-connect upload \
-            --api-key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
-            --api-issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
+          app-store-connect publish \
+            --path "build/ios/$IPA_NAME.ipa" \
+            --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
+            --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
             --private-key "$APP_STORE_CONNECT_PRIVATE_KEY" \
-            --path "build/ios/ipa/${IPA_NAME}.ipa" \
-            --release-notes "$TESTFLIGHT_RELEASE_NOTES"
-          echo "✅ Uploaded successfully to TestFlight"
+            --release-type TESTFLIGHT \
+            --submit-for-review false
 
     artifacts:
-      - build/ios/ipa/*.ipa
+      - build/ios/**/*.ipa
+      - build/ios/**/*.xcarchive
+      - export_options.plist
