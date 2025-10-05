@@ -1,4 +1,4 @@
-  workflows:
+workflows:
   ios_poc:
     name: iOS TryggSamtal PoC
     environment:
@@ -6,26 +6,14 @@
       vars:
         XCODE_PROJECT: "TryggSamtal.xcodeproj"
         XCODE_SCHEME: "TryggSamtal"
-        BUNDLE_ID: "com.yourname.tryggsamtal"   # BYT: exakt din bundle id
+        BUNDLE_ID: "com.yourname.tryggsamtal"        # <-- BYT
+        TEAM_ID: "93397B64RG"                        # <-- BYT
+        PROVISIONING_PROFILE_NAME: "Tryggsamtal_provision" # <-- BYT
     scripts:
       - name: Install tools
         script: |
           brew update || true
           brew install xcodegen || true
-
-      - name: Fetch whisper.cpp
-        script: |
-          mkdir -p vendor
-          if [ ! -d vendor/whisper.cpp ]; then
-            git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git vendor/whisper.cpp
-          fi
-
-      - name: Add Whisper model
-        script: |
-          mkdir -p Resources/Models
-          if [ ! -f Resources/Models/ggml-base.bin ]; then
-            curl -L -o Resources/Models/ggml-base.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin
-          fi
 
       - name: Generate Xcode project via XcodeGen
         script: |
@@ -38,27 +26,33 @@
             exit 1
           fi
 
+      # Installerar dina uppladdade .p12/.mobileprovision i keychain och kopplar dem till projektet
+      - name: Set up keychain and use uploaded profiles
+        script: |
+          keychain initialize
+          keychain add-certificates
+          xcode-project use-profiles
+
+      # Skapar giltig XML-plist för export
       - name: Build .ipa
         script: |
-          echo "Creating export options plist"
-          cat > export_options.plist <<'PLIST'
+          cat > export_options.plist <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
             <key>method</key><string>development</string>
-            <key>teamID</key><string>93397B64RG</string> <!-- BYT: ditt Team ID -->
+            <key>teamID</key><string>${TEAM_ID}</string>
             <key>signingStyle</key><string>manual</string>
             <key>provisioningProfiles</key>
             <dict>
-              <key>com.yourname.tryggsamtal</key><string>Tryggsamtal_provision</string> <!-- BYT: bundle id + profilnamn -->
+              <key>${BUNDLE_ID}</key><string>${PROVISIONING_PROFILE_NAME}</string>
             </dict>
             <key>compileBitcode</key><false/>
           </dict>
           </plist>
           PLIST
 
-          echo "Building IPA"
           xcode-project build-ipa \
             --project "$XCODE_PROJECT" \
             --scheme "$XCODE_SCHEME" \
