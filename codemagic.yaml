@@ -34,29 +34,62 @@ workflows:
           xcode-project use-profiles
 
       # Skapar giltig XML-plist för export
-      - name: Build .ipa
-        script: |
-          cat > export_options.plist <<PLIST
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key><string>development</string>
-            <key>teamID</key><string>${TEAM_ID}</string>
-            <key>signingStyle</key><string>manual</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>${BUNDLE_ID}</key><string>${PROVISIONING_PROFILE_NAME}</string>
-            </dict>
-            <key>compileBitcode</key><false/>
-          </dict>
-          </plist>
-          PLIST
+- name: Build .ipa
+  script: |
+    # Skapa exportOptions (XML)
+    cat > export_options.plist <<PLIST
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+    <plist version="1.0">
+    <dict>
+      <key>method</key><string>development</string>
+      <key>teamID</key><string>${TEAM_ID}</string>
+      <key>signingStyle</key><string>manual</string>
+      <key>provisioningProfiles</key>
+      <dict>
+        <key>${BUNDLE_ID}</key><string>${PROVISIONING_PROFILE_NAME}</string>
+      </dict>
+      <key>compileBitcode</key><false/>
+    </dict>
+    </plist>
+    PLIST
 
-          xcode-project build-ipa \
-            --project "$XCODE_PROJECT" \
-            --scheme "$XCODE_SCHEME" \
-            --export-options-plist export_options.plist
+    echo ">>> List schemes & targets"
+    xcodebuild -list -project "$XCODE_PROJECT" | sed -n '1,120p'
+
+    echo ">>> Show key build settings"
+    xcodebuild -project "$XCODE_PROJECT" -scheme "$XCODE_SCHEME" -showBuildSettings | egrep 'PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM|PROVISIONING_PROFILE_SPECIFIER|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY' || true
+
+    echo ">>> Clean"
+    xcodebuild clean -project "$XCODE_PROJECT" -scheme "$XCODE_SCHEME"
+
+    echo ">>> Archive (full log)"
+    set -o pipefail
+    xcodebuild archive \
+      -project "$XCODE_PROJECT" \
+      -scheme "$XCODE_SCHEME" \
+      -archivePath build/ios/TryggSamtal.xcarchive \
+      CODE_SIGN_STYLE=Manual \
+      CODE_SIGN_IDENTITY="Apple Development" \
+      DEVELOPMENT_TEAM=$TEAM_ID \
+      PROVISIONING_PROFILE_SPECIFIER="$PROVISIONING_PROFILE_NAME" \
+      PRODUCT_BUNDLE_IDENTIFIER=$BUNDLE_ID \
+      | tee xcodebuild_archive.log | xcpretty
+
+    ARCHIVE_STATUS=$?
+    if [ $ARCHIVE_STATUS -ne 0 ]; then
+      echo ">>> xcodebuild archive failed (status $ARCHIVE_STATUS). Showing last 200 lines:"
+      tail -n 200 xcodebuild_archive.log
+      exit $ARCHIVE_STATUS
+    fi
+
+    echo ">>> Export IPA"
+    xcodebuild -exportArchive \
+      -archivePath build/ios/TryggSamtal.xcarchive \
+      -exportOptionsPlist export_options.plist \
+      -exportPath build/ios/ipa \
+      | tee xcodebuild_export.log | xcpretty || { echo 'Export failed'; tail -n 200 xcodebuild_export.log; exit 1; }
+
 
     artifacts:
       - build/ios/ipa/*.ipa
