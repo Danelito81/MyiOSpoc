@@ -11,10 +11,10 @@ workflows:
         XCODE_PROJECT: "TryggSamtal.xcodeproj"
         IPA_NAME: "TryggSamtal"
         # ---------------------------------
-      # Sätt dessa som Secure env vars i Codemagic UI (inte i git):
+      # Lägg dessa som Secure env vars i Codemagic UI (Workflow settings → Environment variables):
       # APP_STORE_CONNECT_ISSUER_ID
       # APP_STORE_CONNECT_KEY_IDENTIFIER
-      # APP_STORE_CONNECT_PRIVATE_KEY
+      # APP_STORE_CONNECT_PRIVATE_KEY   (hela .p8-innehållet inkl. BEGIN/END)
       # (valfritt) TESTFLIGHT_RELEASE_NOTES
 
     scripts:
@@ -42,10 +42,10 @@ workflows:
           fi
           echo "Found profile: $PROFILE_PATH"
 
-          # Extract UUID from binary mobileprovision
+          # Robust UUID-extraktion (binär mobileprovision → XML → UUID)
           UUID=$(security cms -D -i "$PROFILE_PATH" | plutil -extract UUID raw -)
           if [ -z "$UUID" ]; then
-            echo "Could not extract UUID"; security cms -D -i "$PROFILE_PATH" | head -n 40; exit 1
+            echo "Could not extract UUID from $PROFILE_PATH"; security cms -D -i "$PROFILE_PATH" | head -n 40; exit 1
           fi
           echo "Extracted UUID: $UUID"
 
@@ -57,9 +57,12 @@ workflows:
 
       - name: Set up keychain and add uploaded certificates
         script: |
-          # Kräver att du laddat upp .p12 under Settings → Code signing identities → iOS certificates
+          # Kräver att ditt .p12-cert (Apple Development) är uppladdat under:
+          # Settings → Code signing identities → iOS certificates
           keychain initialize
           keychain add-certificates
+          # Debug (frivilligt):
+          security find-identity -v -p codesigning ~/Library/codemagic-cli-tools/keychains/*.keychain-db || true
 
       - name: Build .ipa (archive + export)
         script: |
@@ -125,7 +128,6 @@ workflows:
           IPA="$(ls build/ios/ipa/*.ipa | head -n 1)"
           test -f "$IPA" || { echo "No IPA to upload"; exit 1; }
 
-          # Sanity-check ASC secrets
           for v in APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_KEY_IDENTIFIER APP_STORE_CONNECT_PRIVATE_KEY; do
             if [ -z "${!v}" ]; then
               echo "Missing env var: $v (set as Secure in Workflow settings)"; exit 1
