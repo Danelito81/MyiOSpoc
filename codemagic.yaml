@@ -8,7 +8,6 @@ workflows:
         XCODE_SCHEME: "TryggSamtal"
         BUNDLE_ID: "com.yourname.tryggsamtal"
         TEAM_ID: "93397B64RG"
-        PROVISIONING_PROFILE_NAME: "com.yourname.tryggsamtal"   # exact file name (without .mobileprovision)
     scripts:
       - name: Install tools
         script: |
@@ -31,22 +30,33 @@ workflows:
           echo ">>> Installing local .mobileprovision"
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
 
-          # Copy file
           PROFILE_PATH=$(ls profiles/*.mobileprovision | head -n 1)
+          if [ ! -f "$PROFILE_PATH" ]; then
+            echo "No .mobileprovision found in profiles/"; exit 1
+          fi
           echo "Found profile: $PROFILE_PATH"
 
-          # Extract UUID from profile (this becomes filename that Xcode expects)
+          # Extract UUID from profile and rename it so Xcode recognizes it
           UUID=$(grep -a -o '<key>UUID</key>[[:space:]]*<string>[A-Z0-9\-]*' "$PROFILE_PATH" | sed -E 's/.*<string>(.*)<\/string>/\1/')
+          if [ -z "$UUID" ]; then
+            echo "Could not extract UUID from $PROFILE_PATH"; exit 1
+          fi
           echo "Extracted UUID: $UUID"
 
           cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision"
 
+          # Export UUID to environment for later build steps
+          echo "PROVISIONING_PROFILE_UUID=$UUID" >> $CM_ENV
+
           echo ">>> Installed profiles:"
           ls -la "$HOME/Library/MobileDevice/Provisioning Profiles"
 
-
       - name: Build .ipa
         script: |
+          if [ -z "$PROVISIONING_PROFILE_UUID" ]; then
+            echo "Missing PROVISIONING_PROFILE_UUID in env"; exit 1
+          fi
+
           cat > export_options.plist <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -57,17 +67,22 @@ workflows:
             <key>signingStyle</key><string>manual</string>
             <key>provisioningProfiles</key>
             <dict>
-              <key>${BUNDLE_ID}</key><string>${PROVISIONING_PROFILE_NAME}</string>
+              <key>${BUNDLE_ID}</key><string>${PROVISIONING_PROFILE_UUID}</string>
             </dict>
             <key>compileBitcode</key><false/>
           </dict>
           </plist>
           PLIST
 
-          echo ">>> Building with provisioning profile: ${PROVISIONING_PROFILE_NAME}"
-          echo ">>> Listing installed profiles:"
-          ls "$HOME/Library/MobileDevice/Provisioning Profiles"
+          echo ">>> Using provisioning UUID: ${PROVISIONING_PROFILE_UUID}"
+          echo ">>> Show key build settings"
+          xcodebuild -project "$XCODE_PROJECT" -scheme "$XCODE_SCHEME" -showBuildSettings | egrep 'PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE_SPECIFIER' || true
 
+          echo ">>> Clean"
+          xcodebuild clean -project "$XCODE_PROJECT" -scheme "$XCODE_SCHEME"
+
+          echo ">>> Archive"
+          set -o pipefail
           xcodebuild archive \
             -project "$XCODE_PROJECT" \
             -scheme "$XCODE_SCHEME" \
@@ -75,13 +90,23 @@ workflows:
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Development" \
             DEVELOPMENT_TEAM=${TEAM_ID} \
-            PROVISIONING_PROFILE_SPECIFIER="${PROVISIONING_PROFILE_NAME}" \
-            PRODUCT_BUNDLE_IDENTIFIER=${BUNDLE_ID}
+            PROVISIONING_PROFILE_SPECIFIER="${PROVISIONING_PROFILE_UUID}" \
+            PRODUCT_BUNDLE_IDENTIFIER=${BUNDLE_ID} \
+            | tee xcodebuild_archive.log | xcpretty
 
+          ARCHIVE_STATUS=$?
+          if [ $ARCHIVE_STATUS -ne 0 ]; then
+            echo ">>> xcodebuild archive failed (status $ARCHIVE_STATUS). Last 150 lines:"
+            tail -n 150 xcodebuild_archive.log
+            exit $ARCHIVE_STATUS
+          fi
+
+          echo ">>> Export IPA"
           xcodebuild -exportArchive \
             -archivePath build/ios/TryggSamtal.xcarchive \
             -exportPath build/ios/ipa \
-            -exportOptionsPlist export_options.plist
+            -exportOptionsPlist export_options.plist \
+            | tee xcodebuild_export.log | xcpretty || { echo 'Export failed'; tail -n 150 xcodebuild_export.log; exit 1; }
 
     artifacts:
       - build/ios/ipa/*.ipa
