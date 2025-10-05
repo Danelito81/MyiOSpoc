@@ -1,4 +1,5 @@
 name: TryggSamtal
+
 options:
   minimumXcodeGenVersion: 2.38.0
   deploymentTarget:
@@ -6,11 +7,10 @@ options:
 
 settings:
   base:
-    PRODUCT_BUNDLE_IDENTIFIER: com.yourname.tryggsamtal   # <-- BYT
-    DEVELOPMENT_TEAM: 93397B64RG                          # <-- BYT
+    PRODUCT_BUNDLE_IDENTIFIER: com.yourname.tryggsamtal
+    DEVELOPMENT_TEAM: 93397B64RG
     SWIFT_VERSION: 5.9
     CODE_SIGN_STYLE: Manual
-    CODE_SIGN_IDENTITY: Apple Development
     INFOPLIST_FILE: Resources/Info.plist
 
 targets:
@@ -20,13 +20,19 @@ targets:
     sources:
       - path: UI
       - path: Audio
-      - path: STT
       - path: STTRuntime
       - path: Detection
       - path: Services
       - path: Resources
+      # STT-mappen finns kvar men vi exkluderar Objective-C++-filen (och alla .mm)
+      - path: STT
+        excludes:
+          - "WhisperWrapper.mm"
+          - "**/*.mm"
     settings:
       base:
+        DEVELOPMENT_TEAM: 93397B64RG
+        CODE_SIGN_STYLE: Manual
         PRODUCT_NAME: TryggSamtal
         TARGETED_DEVICE_FAMILY: "1"
         IPHONEOS_DEPLOYMENT_TARGET: "16.0"
