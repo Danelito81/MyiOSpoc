@@ -27,6 +27,14 @@ workflows:
             exit 1
           fi
 
+      - name: Install local provisioning profile
+        script: |
+          echo ">>> Installing local .mobileprovision"
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp profiles/*.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/"
+          echo ">>> Installed profiles:"
+          ls -la "$HOME/Library/MobileDevice/Provisioning Profiles"
+
       - name: Set up keychain and use uploaded profiles
         script: |
           keychain initialize
