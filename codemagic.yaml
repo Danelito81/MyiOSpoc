@@ -11,7 +11,7 @@ workflows:
         XCODE_PROJECT: "TryggSamtal.xcodeproj"
         XCODE_SCHEME: "TryggSamtal"
         IPA_NAME: "TryggSamtal"
-        CODESIGN_ID: "Apple Development"
+        CODESIGN_ID: "Apple Development"  # håll generiskt
         PROFILE_PATH: "profiles/TryggsamtalDev.mobileprovision"
         KEYCHAIN_PATH: "$HOME/Library/Keychains/build.keychain-db"
 
@@ -41,8 +41,9 @@ workflows:
           fi
           echo "$CERT_P12_B64" | base64 --decode > check.p12
           echo ">>> File type:" && file check.p12 || true
+          echo ">>> Trying to open .p12 with provided password..."
           if ! (openssl pkcs12 -in check.p12 -nokeys -passin pass:"$CERT_P12_PASSWORD" -info -clcerts >/dev/null 2>&1); then
-            echo "❌ OpenSSL could not read the PKCS#12 with the given password"
+            echo "❌ OpenSSL could not read the PKCS#12 with the given password (wrong password or corrupted p12)"
             exit 1
           fi
           echo "✅ OpenSSL verified the PKCS#12 successfully"
@@ -76,7 +77,13 @@ workflows:
             echo "✅ Imported certificate and private key separately"
           fi
 
+          echo ">>> Codesigning identities in keychain (pre-partition-list):"
           security find-identity -v -p codesigning "$KEYCHAIN_PATH" || true
+          if ! security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep -F "Apple Development" >/dev/null; then
+            echo "❌ No 'Apple Development' identity found after import."; exit 1
+          fi
+
+          echo ">>> Setting key partition list…"
           security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN_PATH"
           echo "✅ Key partition list set"
 
@@ -91,16 +98,28 @@ workflows:
           PLIST=$(security cms -D -i "$PROFILE_PATH")
           UUID=$(echo "$PLIST" | plutil -extract UUID raw -)
           NAME=$(echo "$PLIST" | plutil -extract Name raw - 2>/dev/null || true)
+          APPID=$(echo "$PLIST" | plutil -extract Entitlements.application-identifier raw - 2>/dev/null || true)
+          if [ -z "$UUID" ]; then
+            echo "❌ Could not extract UUID"; echo "$PLIST" | head -n 40; exit 1
+          fi
           echo "Profile Name: ${NAME:-<unknown>}"
           echo "Profile UUID: $UUID"
+          echo "application-identifier: ${APPID:-<unknown>} (expected ${TEAM_ID}.${BUNDLE_ID})"
           cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision"
           echo "PROVISIONING_PROFILE_UUID=$UUID" >> $CM_ENV
+          ls -la "$HOME/Library/MobileDevice/Provisioning Profiles"
 
       - name: Build .ipa (archive + export)
         script: |
           set -e
+          test -n "$PROVISIONING_PROFILE_UUID" || { echo "❌ Missing PROVISIONING_PROFILE_UUID"; exit 1; }
+
           echo ">>> Clean"
-          xcodebuild clean -project "$XCODE_PROJECT" -scheme "$XCODE_SCHEME" -sdk iphoneos -destination 'generic/platform=iOS' | xcbeautify
+          xcodebuild clean \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' | xcbeautify
 
           echo ">>> Archive"
           set -o pipefail
@@ -116,6 +135,13 @@ workflows:
             PRODUCT_BUNDLE_IDENTIFIER="${BUNDLE_ID}" \
             PROVISIONING_PROFILE_SPECIFIER="${PROVISIONING_PROFILE_UUID}" \
             | tee xcodebuild_archive.log | xcbeautify
+
+          STATUS=$?
+          if [ $STATUS -ne 0 ]; then
+            echo ">>> Archive failed (status $STATUS). Last 150 lines:"
+            tail -n 150 xcodebuild_archive.log
+            exit $STATUS
+          fi
 
           echo ">>> Write export options to file"
           cat > export_options.plist <<PLIST
@@ -153,19 +179,22 @@ workflows:
           done
           [ $miss -eq 0 ] || { echo "❌ Fix missing env vars in Codemagic → Environment variables (group 'admin')"; exit 1; }
 
-      - name: Upload to TestFlight (verbose + auto-log dump)
+      - name: Upload to TestFlight (verbose)
         script: |
           set -e
           IPA="$(ls build/ios/ipa/*.ipa 2>/dev/null | head -n 1)"
-          if [ -z "$IPA" ]; then echo "❌ No IPA found to upload"; exit 1; fi
+          if [ -z "$IPA" ]; then
+            echo "❌ No IPA found to upload"; exit 1
+          fi
 
-          printf "%s\n" "$APP_STORE_CONNECT_PRIVATE_KEY" > appstore_key.p8
+          echo ">>> Preparing private key..."
+          # Trim tomma rader och skriv till fil
+          printf "%s\n" "$APP_STORE_CONNECT_PRIVATE_KEY" | awk NF > appstore_key.p8
           chmod 600 appstore_key.p8
           echo "Key header: $(head -n 1 appstore_key.p8)"
           echo "Key footer: $(tail -n 1 appstore_key.p8)"
 
-          echo ">>> Uploading to TestFlight (verbose)"
-          set +e
+          echo ">>> Uploading to TestFlight (with --verbose)"
           app-store-connect publish \
             --path "$IPA" \
             --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
@@ -174,20 +203,6 @@ workflows:
             --platform IOS \
             --testflight \
             --verbose
-          EXIT=$?
-          set -e
-
-          if [ $EXIT -ne 0 ]; then
-            echo "⚠️ publish exited with $EXIT — dumping Codemagic log if present…"
-            FOUND_LOG="$(find /var/folders -type f -name 'codemagic-*.log' 2>/dev/null | tail -n 1 || true)"
-            if [ -n "$FOUND_LOG" ]; then
-              echo "------ BEGIN app-store-connect LOG ($FOUND_LOG) ------"
-              tail -n 500 "$FOUND_LOG" || true
-              echo "------- END app-store-connect LOG -------"
-            fi
-            exit $EXIT
-          fi
-
           echo "✅ Upload queued."
 
     artifacts:
