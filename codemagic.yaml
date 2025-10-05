@@ -3,6 +3,8 @@ workflows:
     name: "iOS TryggSamtal PoC"
     environment:
       xcode: latest
+      groups:
+      - admin
       vars:
         # App-id & team (ändra vid behov)
         BUNDLE_ID: "com.yourname.tryggsamtal"
