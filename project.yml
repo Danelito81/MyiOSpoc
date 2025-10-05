@@ -18,17 +18,25 @@ targets:
     type: application
     platform: iOS
     sources:
+      # Din app-entrypoint MÅSTE ingå
+      - path: TryggSamtalApp.swift
+      # Övriga mappar
       - path: UI
       - path: Audio
       - path: STTRuntime
       - path: Detection
       - path: Services
       - path: Resources
-      # STT-mappen finns kvar men vi exkluderar Objective-C++-filen (och alla .mm)
       - path: STT
         excludes:
           - "WhisperWrapper.mm"
           - "**/*.mm"
+    dependencies:
+      # System frameworks (iOS SDK)
+      - sdk: AVFAudio.framework
+      - sdk: AudioToolbox.framework
+      - sdk: CoreAudio.framework
+      - sdk: SwiftUI.framework
     settings:
       base:
         DEVELOPMENT_TEAM: 93397B64RG
