@@ -1,294 +1,34 @@
 workflows:
   ios_release:
-    name: "iOS TryggSamtal Release"
+    name: "TryggSamtal Release"
     environment:
       xcode: latest
-      groups:
-        - admin
       vars:
-        BUNDLE_ID: "com.yourname.tryggsamtal"
-        TEAM_ID: "93397B64RG"
-
-        # Projekt
-        XCODE_PROJECT: "TryggSamtal.xcodeproj"
-        XCODE_SCHEME: "TryggSamtal"
-        IPA_NAME: "TryggSamtal"
-
-        # Kodsignering
-        CODESIGN_DIST: "Apple Distribution"
-        KEYCHAIN_PATH: "$HOME/Library/Keychains/build.keychain-db"
-
-        # Provisioning-profiler på repo
-        PROFILE_DIST_PATH: "profiles/TryggsamtalDist.mobileprovision"
-        PROFILE_DEV_PATH: "profiles/TryggsamtalDev.mobileprovision"
-
+        DIST_P12_PASSWORD: Entersamepassword
     scripts:
-      - name: Install tools
-        script: |
-          set -e
-          brew update || true
-          brew install xcodegen xcbeautify openssl || true
-
-      - name: Generate Xcode project via XcodeGen
-        script: |
-          set -e
-          echo "PWD:" && pwd
-          ls -la
-          if [ -f project.yml ]; then
-            xcodegen generate
-          else
-            echo "❌ Missing project.yml file"; exit 1
-          fi
-          test -f "TryggSamtal.xcodeproj/project.pbxproj" || { echo "❌ XcodeGen failed"; exit 1; }
-
       - name: Normalize & verify DIST_P12_BASE64
         script: |
           set -e
-          if [ -z "${DIST_P12_BASE64:-}" ] || [ -z "${DIST_P12_PASSWORD:-}" ]; then
-            echo "❌ Missing DIST_P12_BASE64 or DIST_P12_PASSWORD"; exit 1
-          fi
-
-          # Spara råsträngen precis som den kommer från CM UI
+          echo "Normalizing p12 Base64..."
           printf "%s" "$DIST_P12_BASE64" > dist_p12.raw.txt
 
-          # Kör en liten Python-normalisering via here-doc (korrekt indenterad)
-          python3 - <<'PY'
+          python3 -c "
 import base64, re, sys
-raw = open("dist_p12.raw.txt","rb").read().decode("utf-8","ignore")
-
-# Trimma, ta bort citattecken/BOM/whitespace
-s = raw.strip().strip('"').strip("'")
-
-# Ta bort ev. data-URI prefix
-s = re.sub(r'^\s*data:[^;]+;base64,', '', s, flags=re.I)
-
-# Gör om escaped radbrytningar till inget (vi vill ha en sammanhängande sträng)
-s = s.replace("\\n", "").replace("\\r", "")
-# Ta bort alla whitespace
-s = re.sub(r'\s+', '', s)
-
-# URL-safe till standard
-s = s.replace('-', '+').replace('_', '/')
-
-# Lägg till padding
-pad = (-len(s)) % 4
-s += "=" * pad
-
+raw = open('dist_p12.raw.txt','r').read().strip().strip('\"').strip(\"'\")
+raw = re.sub(r'^data:[^,]+,', '', raw)
+raw = raw.replace('\\n','').replace('\\r','')
+raw = re.sub(r'\s+','', raw)
+raw = raw.replace('-','+').replace('_','/')
+raw += '=' * (-len(raw) % 4)
 try:
-    blob = base64.b64decode(s, validate=False)
+    decoded = base64.b64decode(raw)
+    open('ios_dist.p12','wb').write(decoded)
+    print('✅ Base64 OK, bytes:', len(decoded))
 except Exception as e:
-    print("❌ Base64 decode failed:", e)
-    print("   length:", len(s), "mod4:", len(s)%4)
+    print('❌ Decode failed:', e)
     sys.exit(1)
+"
 
-open("ios_dist.p12","wb").write(blob)
-print("✅ Base64 normalized & decoded (bytes:", len(blob), ")")
-PY
-
-          echo ">>> Checking PKCS12 with provided password..."
-          if ! (openssl pkcs12 -in ios_dist.p12 -nokeys -passin pass:"$DIST_P12_PASSWORD" -info -clcerts >/dev/null 2>&1); then
-            echo "❌ PKCS#12 could not be opened with the given password (wrong password or corrupted p12)."
-            exit 1
-          fi
-          echo "✅ PKCS12 OK"
-
-      - name: Create and configure keychain (no partition-list yet)
-        script: |
-          set -e
-          echo ">>> Creating keychain at $KEYCHAIN_PATH"
-          security create-keychain -p "" "$KEYCHAIN_PATH"
-          security list-keychains -d user -s "$KEYCHAIN_PATH"
-          security default-keychain -s "$KEYCHAIN_PATH"
-          security unlock-keychain -p "" "$KEYCHAIN_PATH"
-          echo "✅ Keychain created & set as default"
-
-      - name: Import Apple Distribution .p12 (robust)
-        script: |
-          set -e
-          echo ">>> Importing Apple Distribution certificate..."
-          if security import ios_dist.p12 -k "$KEYCHAIN_PATH" -P "$DIST_P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security; then
-            echo "✅ Direct security import succeeded"
-          else
-            echo "⚠️ Direct import failed; trying PEM extract + separate import…"
-            openssl pkcs12 -in ios_dist.p12 -passin pass:"$DIST_P12_PASSWORD" -nodes -clcerts -out dist_extracted.pem
-            awk 'BEGIN{p=0} /BEGIN CERTIFICATE/{p=1} p{print} /END CERTIFICATE/{p=0}' dist_extracted.pem > dist_cert.pem
-            awk 'BEGIN{p=0} /BEGIN PRIVATE KEY/{p=1} p{print} /END PRIVATE KEY/{p=0}' dist_extracted.pem > dist_key.pem
-            security import dist_cert.pem -k "$KEYCHAIN_PATH" -T /usr/bin/codesign -T /usr/bin/security
-            security import dist_key.pem  -k "$KEYCHAIN_PATH" -P "" -A -t private -f pem || \
-            security import dist_key.pem  -k "$KEYCHAIN_PATH" -P "" -A -T /usr/bin/codesign -T /usr/bin/security
-            rm -f dist_extracted.pem dist_cert.pem dist_key.pem
-            echo "✅ Imported certificate and private key separately"
-          fi
-
-          echo ">>> Identities in keychain:"
-          security find-identity -v -p codesigning "$KEYCHAIN_PATH" || true
-
-          echo ">>> Setting key partition list…"
-          security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN_PATH"
-          echo "✅ Key partition list set"
-
-      - name: Install provisioning profiles (DIST + optional DEV)
-        script: |
-          set -e
-          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-
-          install_profile () {
-            local P="$1"
-            [ -f "$P" ] || { echo "❌ Provisioning profile not found at $P"; exit 1; }
-            echo "Found profile: $P"
-            PLIST=$(security cms -D -i "$P")
-            UUID=$(echo "$PLIST" | plutil -extract UUID raw -)
-            NAME=$(echo "$PLIST" | plutil -extract Name raw - 2>/dev/null || true)
-            APPID=$(echo "$PLIST" | plutil -extract Entitlements.application-identifier raw - 2>/dev/null || true)
-            [ -n "$UUID" ] || { echo "❌ Could not extract UUID"; exit 1; }
-            echo "Profile Name: ${NAME:-<unknown>}"
-            echo "Profile UUID: $UUID"
-            echo "application-identifier: ${APPID:-<unknown>} (expected ${TEAM_ID}.${BUNDLE_ID})"
-            cp "$P" "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision"
-            echo "$UUID"
-          }
-
-          echo ">>> Install DIST profile"
-          UUID_DIST=$(install_profile "$PROFILE_DIST_PATH")
-          echo "PROVISIONING_PROFILE_UUID_DIST=$UUID_DIST" >> $CM_ENV
-
-          if [ -f "$PROFILE_DEV_PATH" ]; then
-            echo ">>> Install DEV profile (optional)"
-            UUID_DEV=$(install_profile "$PROFILE_DEV_PATH" || true)
-            echo "PROVISIONING_PROFILE_UUID_DEV=${UUID_DEV:-}" >> $CM_ENV
-          fi
-
-          ls -la "$HOME/Library/MobileDevice/Provisioning Profiles"
-
-      - name: Build .ipa (archive + export, distribution)
-        script: |
-          set -e
-          test -n "$PROVISIONING_PROFILE_UUID_DIST" || { echo "❌ Missing PROVISIONING_PROFILE_UUID_DIST"; exit 1; }
-
-          echo ">>> Clean"
-          xcodebuild clean \
-            -project "$XCODE_PROJECT" \
-            -scheme "$XCODE_SCHEME" \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' | xcbeautify
-
-          echo ">>> Show key build settings (pre-archive)"
-          xcodebuild -project "$XCODE_PROJECT" -scheme "$XCODE_SCHEME" -showBuildSettings | egrep 'PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE_SPECIFIER' || true
-
-          echo ">>> Archive"
-          set -o pipefail
-          xcodebuild archive \
-            -project "$XCODE_PROJECT" \
-            -scheme "$XCODE_SCHEME" \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
-            -archivePath "build/ios/${IPA_NAME}.xcarchive" \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="${CODESIGN_DIST}" \
-            DEVELOPMENT_TEAM="${TEAM_ID}" \
-            PRODUCT_BUNDLE_IDENTIFIER="${BUNDLE_ID}" \
-            PROVISIONING_PROFILE_SPECIFIER="${PROVISIONING_PROFILE_UUID_DIST}" \
-            | tee xcodebuild_archive.log | xcbeautify
-
-          STATUS=$?
-          if [ $STATUS -ne 0 ]; then
-            echo ">>> Archive failed (status $STATUS). Last 150 lines:"
-            tail -n 150 xcodebuild_archive.log
-            exit $STATUS
-          fi
-
-          echo ">>> Write export options to file (app-store)"
-          cat > export_options.plist <<PLIST
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key><string>app-store</string>
-            <key>teamID</key><string>${TEAM_ID}</string>
-            <key>signingStyle</key><string>manual</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>${BUNDLE_ID}</key><string>${PROVISIONING_PROFILE_UUID_DIST}</string>
-            </dict>
-            <key>compileBitcode</key><false/>
-          </dict>
-          </plist>
-          PLIST
-
-          echo ">>> Export IPA"
-          xcodebuild -exportArchive \
-            -archivePath "build/ios/${IPA_NAME}.xcarchive" \
-            -exportOptionsPlist export_options.plist \
-            -exportPath build/ios/ipa \
-            | xcbeautify
-
-          echo "IPA(s) created:"
-          ls -la build/ios/ipa || true
-
-      - name: Validate & fix IPA Info.plist casing (if needed)
-        script: |
-          set -e
-          IPA="build/ios/ipa/${IPA_NAME}.ipa"
-          test -f "$IPA" || { echo "❌ IPA missing"; exit 1; }
-
-          echo ">>> Inspect original IPA:"
-          unzip -l "$IPA" | sed -n '1,200p'
-
-          if unzip -l "$IPA" | grep -q "Payload/.*/info.plist$"; then
-            echo "⚠️ Found lowercase info.plist, rebuilding IPA with proper casing…"
-            rm -rf ipa_tmp && mkdir -p ipa_tmp
-            (cd ipa_tmp && unzip -q "../$IPA")
-            APP_DIR=$(ls -d ipa_tmp/Payload/*.app | head -n 1)
-            mv "$APP_DIR/info.plist" "$APP_DIR/Info.plist"
-            (cd ipa_tmp && zip -qry "../${IPA_NAME}.fixed.ipa" Payload)
-            mv "${IPA_NAME}.fixed.ipa" "build/ios/ipa/${IPA_NAME}.fixed.ipa"
-            echo "✅ Rebuilt IPA at build/ios/ipa/${IPA_NAME}.fixed.ipa"
-          else
-            echo "✅ Info.plist casing OK"
-            cp "$IPA" "build/ios/ipa/${IPA_NAME}.fixed.ipa"
-          fi
-
-      - name: Upload to TestFlight (API key if provided)
-        script: |
-          set -e
-          IPA="build/ios/ipa/${IPA_NAME}.fixed.ipa"
-          test -f "$IPA" || { echo "❌ IPA to upload not found"; exit 1; }
-
-          if [ -n "${APP_STORE_CONNECT_ISSUER_ID:-}" ] && [ -n "${APP_STORE_CONNECT_KEY_IDENTIFIER:-}" ] && [ -n "${APP_STORE_CONNECT_PRIVATE_KEY:-}" ]; then
-            echo ">>> Normalizing .p8 key"
-            printf "%s" "$APP_STORE_CONNECT_PRIVATE_KEY" > appstore_key.raw
-            tr -d '\r' < appstore_key.raw > appstore_key.nocr
-            sed -e '1s/^"//' -e '$s/"$//' appstore_key.nocr > appstore_key.stripped
-            if grep -q '\\n' appstore_key.stripped; then
-              printf "%b" "$(cat appstore_key.stripped)" > appstore_key.norm
-            else
-              cp appstore_key.stripped appstore_key.norm
-            fi
-            if ! grep -q "BEGIN PRIVATE KEY" appstore_key.norm; then
-              { echo "-----BEGIN PRIVATE KEY-----"; fold -w 64 appstore_key.norm; echo "-----END PRIVATE KEY-----"; } > appstore_key.p8
-            else
-              cat appstore_key.norm > appstore_key.p8
-              echo >> appstore_key.p8
-            fi
-            chmod 600 appstore_key.p8
-            echo "Key header: $(head -n 1 appstore_key.p8)"
-            echo "Key footer: $(tail -n 1 appstore_key.p8)"
-
-            echo ">>> Uploading to TestFlight (API)"
-            app-store-connect publish \
-              --path "$IPA" \
-              --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
-              --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
-              --private-key appstore_key.p8 \
-              --platform IOS \
-              --testflight
-            echo "✅ Upload queued."
-          else
-            echo "⚠️ APP STORE CONNECT API vars missing, skipping API upload step."
-            echo "Provide: APP_STORE_CONNECT_ISSUER_ID, APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_PRIVATE_KEY"
-          fi
-
-    artifacts:
-      - build/ios/ipa/*.ipa
-      - build/ios/*.xcarchive
-      - export_options.plist
+          openssl pkcs12 -in ios_dist.p12 -nokeys -passin pass:"$DIST_P12_PASSWORD" -info -clcerts >/dev/null 2>&1 \
+            || { echo '❌ Invalid password or corrupted p12'; exit 1; }
+          echo "✅ PKCS#12 verified"
