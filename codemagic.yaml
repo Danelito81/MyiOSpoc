@@ -11,7 +11,7 @@ workflows:
         XCODE_PROJECT: "TryggSamtal.xcodeproj"
         XCODE_SCHEME: "TryggSamtal"
         IPA_NAME: "TryggSamtal"
-        CODESIGN_ID: "Apple Development"     # håll generiskt
+        CODESIGN_ID: "Apple Development"  # håll generiskt
         PROFILE_PATH: "profiles/TryggsamtalDev.mobileprovision"
         KEYCHAIN_PATH: "$HOME/Library/Keychains/build.keychain-db"
 
@@ -19,7 +19,7 @@ workflows:
       - name: Install tools
         script: |
           brew update || true
-          brew install xcodegen xcbeautify || true
+          brew install xcodegen xcbeautify openssl || true
 
       - name: Generate Xcode project via XcodeGen
         script: |
@@ -60,13 +60,8 @@ workflows:
 
       - name: Inject Apple Development .p12 into keychain (robust, no heredocs)
         script: |
-          set -euo pipefail
+          set -e
           echo ">>> Importing Apple Development certificate..."
-          echo "KEYCHAIN_PATH: ${KEYCHAIN_PATH:-<empty>}"
-          if [ -z "${KEYCHAIN_PATH:-}" ]; then
-            echo "❌ KEYCHAIN_PATH is empty"; exit 1
-          fi
-
           echo "$CERT_P12_B64" | base64 --decode > ios_dev.p12
 
           # Försök direkt import av .p12
@@ -74,15 +69,18 @@ workflows:
             echo "✅ Direct security import succeeded"
           else
             echo "⚠️ Direct import failed; extracting cert+key PEM and importing separately..."
+            # Extrahera cert + privat nyckel
             openssl pkcs12 -in ios_dev.p12 -passin pass:"$CERT_P12_PASSWORD" -nodes -clcerts -out extracted.pem
 
-            # Skriv cert + key från PEM
+            # Skriv cert
             awk 'BEGIN{p=0} /BEGIN CERTIFICATE/{p=1} p{print} /END CERTIFICATE/{p=0}' extracted.pem > dev_cert.pem
+            # Skriv key
             awk 'BEGIN{p=0} /BEGIN PRIVATE KEY/{p=1} p{print} /END PRIVATE KEY/{p=0}' extracted.pem > dev_key.pem
 
-            # Importera cert och nyckel separat – OBS: ALLTID med -k "$KEYCHAIN_PATH"
+            # Importera cert och nyckel separat
             security import dev_cert.pem -k "$KEYCHAIN_PATH" -T /usr/bin/codesign -T /usr/bin/security
-            security import dev_key.pem  -k "$KEYCHAIN_PATH" -P "" -A -t private -f pem
+            security import dev_key.pem  -k "$KEYCHAIN_PATH" -P "" -A -t private -f pem || \
+            security import dev_key.pem  -k "$KEYCHAIN_PATH" -P "" -A -T /usr/bin/codesign -T /usr/bin/security
 
             rm -f extracted.pem dev_cert.pem dev_key.pem
             echo "✅ Imported certificate and private key separately"
@@ -131,6 +129,9 @@ workflows:
             -scheme "$XCODE_SCHEME" \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' | xcbeautify
+
+          echo ">>> Show key build settings (pre-archive)"
+          xcodebuild -project "$XCODE_PROJECT" -scheme "$XCODE_SCHEME" -showBuildSettings | egrep 'PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE_SPECIFIER' || true
 
           echo ">>> Archive"
           set -o pipefail
@@ -190,7 +191,7 @@ workflows:
           done
           [ $miss -eq 0 ] || { echo "❌ Fix missing env vars in Codemagic → Environment variables (group 'admin')"; exit 1; }
 
-      - name: Upload to TestFlight (verbose)
+      - name: Upload to TestFlight (verbose logs only)
         script: |
           set -e
           IPA="$(ls build/ios/ipa/*.ipa 2>/dev/null | head -n 1)"
@@ -198,13 +199,14 @@ workflows:
             echo "❌ No IPA found to upload"; exit 1
           fi
 
-          echo ">>> Preparing private key..."
-          printf "%s\n" "$APP_STORE_CONNECT_PRIVATE_KEY" | awk NF > appstore_key.p8
+          # Skriv privata nyckeln som är redan PEM-format i env (ingen normalisering här)
+          printf "%s\n" "$APP_STORE_CONNECT_PRIVATE_KEY" > appstore_key.p8
           chmod 600 appstore_key.p8
           echo "Key header: $(head -n 1 appstore_key.p8)"
           echo "Key footer: $(tail -n 1 appstore_key.p8)"
 
-          echo ">>> Uploading to TestFlight (with --verbose)"
+          # Kör med maximal verbositet och skriv allt till en fil + stdout
+          set -o pipefail
           app-store-connect publish \
             --path "$IPA" \
             --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
@@ -212,10 +214,23 @@ workflows:
             --private-key appstore_key.p8 \
             --platform IOS \
             --testflight \
-            --verbose
+            --verbose \
+            --log-stream stdout \
+            2>&1 | tee appstore_publish.log
+
+          EXIT_CODE=${PIPESTATUS[0]}
+          echo ">>> app-store-connect exit code: $EXIT_CODE"
+          echo ">>> Last 200 lines of appstore_publish.log (for debugging):"
+          tail -n 200 appstore_publish.log || true
+
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "❌ TestFlight upload failed"; exit $EXIT_CODE
+          fi
+
           echo "✅ Upload queued."
 
     artifacts:
       - build/ios/ipa/*.ipa
       - build/ios/*.xcarchive
       - export_options.plist
+      - appstore_publish.log
