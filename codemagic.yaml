@@ -8,8 +8,7 @@ workflows:
         XCODE_SCHEME: "TryggSamtal"
         BUNDLE_ID: "com.yourname.tryggsamtal"
         TEAM_ID: "93397B64RG"
-        PROVISIONING_PROFILE_NAME: "com.yourname.tryggsamtal"
-
+        PROVISIONING_PROFILE_NAME: "TryggsamtalDev"   # exact file name (without .mobileprovision)
     scripts:
       - name: Install tools
         script: |
@@ -35,27 +34,6 @@ workflows:
           echo ">>> Installed profiles:"
           ls -la "$HOME/Library/MobileDevice/Provisioning Profiles"
 
-      - name: Set up keychain and use uploaded profiles
-        script: |
-          keychain initialize
-          keychain add-certificates
-          xcode-project use-profiles
-
-      - name: Ensure provisioning profile is installed
-        script: |
-          echo ">>> List existing profiles on machine"
-          mkdir -p "${HOME}/Library/MobileDevice/Provisioning Profiles"
-          ls -la "${HOME}/Library/MobileDevice/Provisioning Profiles" || true
-          echo ">>> Try to fetch dev profile from App Store Connect"
-          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_DEVELOPMENT --create \
-            --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
-            --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
-            --private-key "$APP_STORE_CONNECT_PRIVATE_KEY"
-          echo ">>> Re-link profiles to project"
-          xcode-project use-profiles
-          echo ">>> Validate that matching profile exists now"
-          grep -R "$BUNDLE_ID" "${HOME}/Library/MobileDevice/Provisioning Profiles" || { echo "No installed profile for $BUNDLE_ID"; exit 1; }
-
       - name: Build .ipa
         script: |
           cat > export_options.plist <<PLIST
@@ -75,41 +53,24 @@ workflows:
           </plist>
           PLIST
 
-          echo ">>> List schemes & targets"
-          xcodebuild -list -project "$XCODE_PROJECT" | sed -n '1,120p'
+          echo ">>> Building with provisioning profile: ${PROVISIONING_PROFILE_NAME}"
+          echo ">>> Listing installed profiles:"
+          ls "$HOME/Library/MobileDevice/Provisioning Profiles"
 
-          echo ">>> Show key build settings"
-          xcodebuild -project "$XCODE_PROJECT" -scheme "$XCODE_SCHEME" -showBuildSettings | egrep 'PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM|PROVISIONING_PROFILE_SPECIFIER|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY' || true
-
-          echo ">>> Clean"
-          xcodebuild clean -project "$XCODE_PROJECT" -scheme "$XCODE_SCHEME"
-
-          echo ">>> Archive (full log)"
-          set -o pipefail
           xcodebuild archive \
             -project "$XCODE_PROJECT" \
             -scheme "$XCODE_SCHEME" \
             -archivePath build/ios/TryggSamtal.xcarchive \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Development" \
-            DEVELOPMENT_TEAM=$TEAM_ID \
-            PROVISIONING_PROFILE_SPECIFIER="$PROVISIONING_PROFILE_NAME" \
-            PRODUCT_BUNDLE_IDENTIFIER=$BUNDLE_ID \
-            | tee xcodebuild_archive.log | xcpretty
+            DEVELOPMENT_TEAM=${TEAM_ID} \
+            PROVISIONING_PROFILE_SPECIFIER="${PROVISIONING_PROFILE_NAME}" \
+            PRODUCT_BUNDLE_IDENTIFIER=${BUNDLE_ID}
 
-          ARCHIVE_STATUS=$?
-          if [ $ARCHIVE_STATUS -ne 0 ]; then
-            echo ">>> xcodebuild archive failed (status $ARCHIVE_STATUS). Showing last 200 lines:"
-            tail -n 200 xcodebuild_archive.log
-            exit $ARCHIVE_STATUS
-          fi
-
-          echo ">>> Export IPA"
           xcodebuild -exportArchive \
             -archivePath build/ios/TryggSamtal.xcarchive \
-            -exportOptionsPlist export_options.plist \
             -exportPath build/ios/ipa \
-            | tee xcodebuild_export.log | xcpretty || { echo 'Export failed'; tail -n 200 xcodebuild_export.log; exit 1; }
+            -exportOptionsPlist export_options.plist
 
     artifacts:
       - build/ios/ipa/*.ipa
