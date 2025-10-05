@@ -1,4 +1,4 @@
-workflows:
+  workflows:
   ios_poc:
     name: iOS TryggSamtal PoC
     environment:
@@ -6,12 +6,7 @@ workflows:
       vars:
         XCODE_PROJECT: "TryggSamtal.xcodeproj"
         XCODE_SCHEME: "TryggSamtal"
-        BUNDLE_ID: "com.yourname.tryggsamtal"   # byt till samma som i project.yml
-        APP_STORE_CONNECT_ISSUER_ID: "47854e61-50b6-4773-9d7d-da77933ae014"
-        APP_STORE_CONNECT_KEY_IDENTIFIER: "4R3W9H9Z3B"
-        APP_STORE_CONNECT_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----MIGTAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBHkwdwIBAQQgE41H7EQhnEdaX/GIAft2+tchU/FnOxSCy6L1hePL6OGgCgYIKoZIzj0DAQehRANCAAQRglvMmcO5TCDSEp+IL0q3ElpLQEIS6FM5E5SM1bgErNxKkSu3yfP98KrwI6SnskxUaWd4h/ykTtQOueBb4TOF-----END PRIVATE KEY-----"
-
-
+        BUNDLE_ID: "com.yourname.tryggsamtal"   # BYT: exakt din bundle id
     scripts:
       - name: Install tools
         script: |
@@ -36,73 +31,38 @@ workflows:
         script: |
           echo "PWD:" && pwd
           echo "List before:" && ls -la
-          echo "Run XcodeGen:"
           xcodegen generate --spec project.yml
           echo "List after:" && ls -la
-          # Kontrollera att projektet verkligen skapades
           if [ ! -f "TryggSamtal.xcodeproj/project.pbxproj" ]; then
-            echo "ERROR: XcodeGen skapade inte TryggSamtal.xcodeproj"
+            echo "ERROR: XcodeGen failed to create TryggSamtal.xcodeproj"
             exit 1
           fi
 
-      - name: Sanity check App Store Connect env vars
-        script: |
-          if [ -z "$APP_STORE_CONNECT_ISSUER_ID" ]; then
-            echo "MISS: APP_STORE_CONNECT_ISSUER_ID is empty"; exit 1
-          else
-            echo "OK: APP_STORE_CONNECT_ISSUER_ID present"
-          fi
-          if [ -z "$APP_STORE_CONNECT_KEY_IDENTIFIER" ]; then
-            echo "MISS: APP_STORE_CONNECT_KEY_IDENTIFIER is empty"; exit 1
-          else
-            echo "OK: APP_STORE_CONNECT_KEY_IDENTIFIER present"
-          fi
-          if [ -z "$APP_STORE_CONNECT_PRIVATE_KEY" ]; then
-            echo "MISS: APP_STORE_CONNECT_PRIVATE_KEY is empty"; exit 1
-          else
-            echo "OK: APP_STORE_CONNECT_PRIVATE_KEY present"
-          fi
-
       - name: Build .ipa
-          script: |
-            echo "Creating export options plist"
-            cat <<'EOF' > export_options.plist
-            <?xml version="1.0" encoding="UTF-8"?>
-            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-            <plist version="1.0">
+        script: |
+          echo "Creating export options plist"
+          cat > export_options.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>development</string>
+            <key>teamID</key><string>93397B64RG</string> <!-- BYT: ditt Team ID -->
+            <key>signingStyle</key><string>manual</string>
+            <key>provisioningProfiles</key>
             <dict>
-              <key>method</key>
-              <string>development</string>
-              <key>teamID</key>
-              <string>93397B64RG</string>
-              <key>signingStyle</key>
-              <string>manual</string>
-              <key>provisioningProfiles</key>
-              <dict>
-                <key>com.yourname.tryggsamtal</key>
-                <string>Tryggsamtal_provision</string>
-              </dict>
-            <key>compileBitcode</key>
-            <false/>
-        </dict>
-        </plist>
-      EOF
+              <key>com.yourname.tryggsamtal</key><string>Tryggsamtal_provision</string> <!-- BYT: bundle id + profilnamn -->
+            </dict>
+            <key>compileBitcode</key><false/>
+          </dict>
+          </plist>
+          PLIST
 
-    echo "Building IPA"
-    xcode-project build-ipa \
-      --project "$XCODE_PROJECT" \
-      --scheme "$XCODE_SCHEME" \
-      --export-options-plist export_options.plist
+          echo "Building IPA"
+          xcode-project build-ipa \
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME" \
+            --export-options-plist export_options.plist
 
     artifacts:
       - build/ios/ipa/*.ipa
-      - $XCODE_PROJECT
-
-    publishing:
-      email:
-        recipients:
-          - your@email.com
-        notify:
-          success: true
-          failure: true
-
