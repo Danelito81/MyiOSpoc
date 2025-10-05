@@ -8,7 +8,7 @@ workflows:
         XCODE_SCHEME: "TryggSamtal"
         BUNDLE_ID: "com.yourname.tryggsamtal"        # <-- BYT
         TEAM_ID: "93397B64RG"                        # <-- BYT
-        PROVISIONING_PROFILE_NAME: "Tryggsamtal_provision" # <-- BYT
+        PROVISIONING_PROFILE_NAME: "Tryggsamtal-Dev" # <-- BYT
     scripts:
       - name: Install tools
         script: |
