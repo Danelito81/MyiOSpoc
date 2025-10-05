@@ -4,18 +4,14 @@ workflows:
     environment:
       xcode: latest
       vars:
-        # ----- BYT DESSA TRE -----
-        BUNDLE_ID: "com.yourname.tryggsamtal"   # exakt samma som i din profil
-        TEAM_ID: "93397B64RG"                   # ditt Apple Team ID
+        # ----- BYT TILL DINA VÄRDEN -----
+        BUNDLE_ID: "com.yourname.tryggsamtal"
+        TEAM_ID: "93397B64RG"
         XCODE_SCHEME: "TryggSamtal"
         XCODE_PROJECT: "TryggSamtal.xcodeproj"
-        # --------------------------
-
-        # Public bundle name (används bara till filnamn)
         IPA_NAME: "TryggSamtal"
-
-      # Lägg INTE in dina App Store Connect-hemligheter i git.
-      # Sätt dem som Secure env vars i Codemagic UI:
+        # ---------------------------------
+      # Sätt dessa som Secure env vars i Codemagic UI (inte i git):
       # APP_STORE_CONNECT_ISSUER_ID
       # APP_STORE_CONNECT_KEY_IDENTIFIER
       # APP_STORE_CONNECT_PRIVATE_KEY
@@ -32,7 +28,7 @@ workflows:
           echo "PWD:" && pwd
           ls -la
           xcodegen generate --spec project.yml
-          test -f "TryggSamtal.xcodeproj/project.pbxproj" || { echo "XcodeGen misslyckades"; exit 1; }
+          test -f "TryggSamtal.xcodeproj/project.pbxproj" || { echo "XcodeGen failed"; exit 1; }
 
       - name: Install local provisioning profile (from repo/profiles/)
         script: |
@@ -42,29 +38,33 @@ workflows:
 
           PROFILE_PATH=$(ls profiles/*.mobileprovision 2>/dev/null | head -n 1)
           if [ -z "$PROFILE_PATH" ]; then
-            echo "Hittar ingen .mobileprovision i ./profiles"; exit 1
+            echo "No .mobileprovision found in ./profiles"; exit 1
           fi
           echo "Found profile: $PROFILE_PATH"
 
-          # Extrahera UUID ur binär mobileprovision (robust metod)
+          # Extract UUID from binary mobileprovision
           UUID=$(security cms -D -i "$PROFILE_PATH" | plutil -extract UUID raw -)
           if [ -z "$UUID" ]; then
-            echo "Kunde inte läsa ut UUID ur $PROFILE_PATH"; security cms -D -i "$PROFILE_PATH" | head -n 40; exit 1
+            echo "Could not extract UUID"; security cms -D -i "$PROFILE_PATH" | head -n 40; exit 1
           fi
           echo "Extracted UUID: $UUID"
 
           cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision"
-
-          # Exportera till env för senare steg
           echo "PROVISIONING_PROFILE_UUID=$UUID" >> $CM_ENV
 
           echo ">>> Installed profiles:"
           ls -la "$HOME/Library/MobileDevice/Provisioning Profiles"
 
+      - name: Set up keychain and add uploaded certificates
+        script: |
+          # Kräver att du laddat upp .p12 under Settings → Code signing identities → iOS certificates
+          keychain initialize
+          keychain add-certificates
+
       - name: Build .ipa (archive + export)
         script: |
           set -e
-          test -n "$PROVISIONING_PROFILE_UUID" || { echo "Saknar PROVISIONING_PROFILE_UUID"; exit 1; }
+          test -n "$PROVISIONING_PROFILE_UUID" || { echo "Missing PROVISIONING_PROFILE_UUID"; exit 1; }
 
           cat > export_options.plist <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
@@ -84,13 +84,19 @@ workflows:
           PLIST
 
           echo ">>> Clean"
-          xcodebuild clean -project "$XCODE_PROJECT" -scheme "$XCODE_SCHEME" | xcbeautify
+          xcodebuild clean \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' | xcbeautify
 
           echo ">>> Archive"
           set -o pipefail
           xcodebuild archive \
             -project "$XCODE_PROJECT" \
             -scheme "$XCODE_SCHEME" \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
             -archivePath "build/ios/${IPA_NAME}.xcarchive" \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Development" \
@@ -98,7 +104,13 @@ workflows:
             PRODUCT_BUNDLE_IDENTIFIER="${BUNDLE_ID}" \
             PROVISIONING_PROFILE_SPECIFIER="${PROVISIONING_PROFILE_UUID}" \
             | tee xcodebuild_archive.log | xcbeautify
-          echo "Archive done."
+
+          ARCHIVE_STATUS=$?
+          if [ $ARCHIVE_STATUS -ne 0 ]; then
+            echo ">>> xcodebuild archive failed (status $ARCHIVE_STATUS). Last 150 lines:"
+            tail -n 150 xcodebuild_archive.log
+            exit $ARCHIVE_STATUS
+          fi
 
           echo ">>> Export IPA"
           xcodebuild -exportArchive \
@@ -111,24 +123,23 @@ workflows:
         script: |
           set -e
           IPA="$(ls build/ios/ipa/*.ipa | head -n 1)"
-          test -f "$IPA" || { echo "Saknar IPA att ladda upp"; exit 1; }
+          test -f "$IPA" || { echo "No IPA to upload"; exit 1; }
 
-          # Sanity-check av ASC-hemligheter
+          # Sanity-check ASC secrets
           for v in APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_KEY_IDENTIFIER APP_STORE_CONNECT_PRIVATE_KEY; do
             if [ -z "${!v}" ]; then
-              echo "Env var $v saknas. Sätt den som Secure var i Codemagic UI (Workflow settings → Environment variables)."; exit 1
+              echo "Missing env var: $v (set as Secure in Workflow settings)"; exit 1
             fi
           done
 
-          echo ">>> Uploading $IPA to TestFlight"
-          # 'publish' läser bundle id/app från IPA automatiskt om appen redan finns i App Store Connect
+          echo ">>> Uploading to TestFlight"
           app-store-connect publish \
             --path "$IPA" \
             --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
             --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
             --private-key "$APP_STORE_CONNECT_PRIVATE_KEY" \
             --submit-for-beta-review \
-            --release-notes "${TESTFLIGHT_RELEASE_NOTES:-Automatisk build via Codemagic}"
+            --release-notes "${TESTFLIGHT_RELEASE_NOTES:-Codemagic PoC build}"
 
           echo "Upload queued on App Store Connect."
 
