@@ -12,7 +12,7 @@ workflows:
         XCODE_SCHEME: "TryggSamtal"
         IPA_NAME: "TryggSamtal"
         CODESIGN_ID: "Apple Development"  # håll generiskt
-        PROFILE_PATH: "profiles/TryggsamtalDev.mobileprovision"
+        PROFILE_PATH: "profiles/TryggSamtalDev.mobileprovision"
         KEYCHAIN_PATH: "$HOME/Library/Keychains/build.keychain-db"
 
     scripts:
@@ -183,36 +183,46 @@ workflows:
           echo "IPA(s) created:"
           ls -la build/ios/ipa || true
 
-      # --- NYTT STEG: validera/fixa Info.plist i IPA om felaktigt gemen ---
       - name: Validate & fix IPA Info.plist casing (if needed)
         script: |
           set -e
           IPA_ORIG="$(ls build/ios/ipa/*.ipa 2>/dev/null | head -n1)"
           if [ -z "$IPA_ORIG" ]; then echo "❌ No IPA to validate"; exit 1; fi
 
-          echo ">>> Inspect original IPA:"
-          unzip -l "$IPA_ORIG" | sed -n '1,120p' || true
+          # Absolut sökväg så vi kan unzip:a från vilken katalog som helst:
+          IPA_ABS="$(cd "$(dirname "$IPA_ORIG")" && pwd)/$(basename "$IPA_ORIG")"
+          echo "Using IPA_ABS: $IPA_ABS"
 
-          if unzip -l "$IPA_ORIG" | grep -q 'Payload/.*/Info.plist'; then
+          echo ">>> Inspect original IPA:"
+          unzip -l "$IPA_ABS" | sed -n '1,120p' || true
+
+          if unzip -l "$IPA_ABS" | grep -q 'Payload/.*/Info.plist'; then
             echo "✅ Correct Info.plist detected. No fix needed."
-            echo "IPA_TO_UPLOAD=$IPA_ORIG" >> $CM_ENV
+            echo "IPA_TO_UPLOAD=$IPA_ABS" >> $CM_ENV
             exit 0
           fi
 
-          if unzip -l "$IPA_ORIG" | grep -q 'Payload/.*/info.plist'; then
+          if unzip -l "$IPA_ABS" | grep -qi 'Payload/.*/info.plist'; then
             echo "⚠️ Found lowercase info.plist, rebuilding IPA with proper casing…"
-            WORKDIR=$(mktemp -d)
-            (cd "$WORKDIR" && unzip -q "$IPA_ORIG")
-            APPDIR=$(cd "$WORKDIR/Payload" && ls -d *.app | head -n1)
-            if [ -f "$WORKDIR/Payload/$APPDIR/info.plist" ]; then
-              mv "$WORKDIR/Payload/$APPDIR/info.plist" "$WORKDIR/Payload/$APPDIR/Info.plist"
+            WORKDIR="$(mktemp -d)"
+            # Packa upp till WORKDIR utan att byta katalog
+            unzip -q "$IPA_ABS" -d "$WORKDIR"
+            APPDIR="$(find "$WORKDIR/Payload" -maxdepth 1 -type d -name '*.app' | head -n 1)"
+            if [ -z "$APPDIR" ]; then
+              echo "❌ Could not locate .app inside IPA"; exit 1
+            fi
+            if [ -f "$APPDIR/info.plist" ]; then
+              mv "$APPDIR/info.plist" "$APPDIR/Info.plist"
             fi
             IPA_FIXED="build/ios/ipa/${IPA_NAME}.fixed.ipa"
-            (cd "$WORKDIR" && zip -qry "../${IPA_NAME}.fixed.ipa" Payload)
-            mv "build/ios/${IPA_NAME}.fixed.ipa" "$IPA_FIXED" || true
+            # Zippa om från WORKDIR (behåll korrekt struktur)
+            (cd "$WORKDIR" && zip -qry "$PWD/fixed.ipa" Payload)
+            mv "$WORKDIR/fixed.ipa" "$IPA_FIXED"
             rm -rf "$WORKDIR"
             echo "✅ Wrote fixed IPA: $IPA_FIXED"
-            echo "IPA_TO_UPLOAD=$IPA_FIXED" >> $CM_ENV
+            echo ">>> Verify fixed IPA:"
+            unzip -l "$IPA_FIXED" | egrep -i 'Payload/.+\.app/(Info\.plist|info\.plist)' || true
+            echo "IPA_TO_UPLOAD=$(cd "$(dirname "$IPA_FIXED")" && pwd)/$(basename "$IPA_FIXED")" >> $CM_ENV
             exit 0
           fi
 
@@ -227,8 +237,7 @@ workflows:
           done
           [ $miss -eq 0 ] || { echo "❌ Fix missing env vars in Codemagic → Environment variables (group 'admin')"; exit 1; }
 
-      # --- UPPDATERAT STEG: robust upload + logg + altool fallback ---
-      - name: Upload to TestFlight (verbose + log print + altool fallback)
+      - name: Upload to TestFlight (pass PEM content, minimal flags)
         script: |
           set -e
           IPA="${IPA_TO_UPLOAD:-$(ls build/ios/ipa/*.ipa 2>/dev/null | head -n 1)}"
@@ -236,7 +245,7 @@ workflows:
             echo "❌ No IPA found to upload"; exit 1
           fi
 
-          # Normalisera .p8 → PEM-innehåll och placera även i altools nyckelkatalog
+          # Normalisera .p8 → PEM-innehåll (oförändrat från baseline)
           printf "%s" "$APP_STORE_CONNECT_PRIVATE_KEY" > appstore_key.raw
           tr -d '\r' < appstore_key.raw > appstore_key.nocr
           sed -e '1s/^"//' -e '$s/"$//' appstore_key.nocr > appstore_key.stripped
@@ -245,57 +254,27 @@ workflows:
           else
             cp appstore_key.stripped appstore_key.p8
           fi
-          if ! grep -q "BEGIN PRIVATE KEY" appstore_key.p8; then
-            {
-              echo "-----BEGIN PRIVATE KEY-----"
-              fold -w 64 appstore_key.p8
-              echo "-----END PRIVATE KEY-----"
-            } > appstore_key.pem && mv appstore_key.pem appstore_key.p8
-          fi
           chmod 600 appstore_key.p8
-
-          # Lägg även på plats där xcrun altool letar som standard
-          mkdir -p "$HOME/.appstoreconnect/private_keys"
-          cp appstore_key.p8 "$HOME/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_IDENTIFIER}.p8"
-
           echo "Key header: $(head -n 1 appstore_key.p8)"
           echo "Key footer: $(tail -n 1 appstore_key.p8)"
+          PEM_CONTENT="$(cat appstore_key.p8)"
 
-          echo ">>> Uploading to TestFlight (codemagic-cli, verbose)"
-          set +e
-          app-store-connect publish \
-            --path "$IPA" \
-            --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
-            --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
-            --private-key "$(cat appstore_key.p8)" \
-            --platform IOS \
-            --testflight \
-            --verbose
-          PUBLISH_RC=$?
-          set -e
-
-          if [ $PUBLISH_RC -ne 0 ]; then
+          echo ">>> Uploading to TestFlight"
+          if ! app-store-connect publish \
+              --path "$IPA" \
+              --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
+              --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
+              --private-key "$PEM_CONTENT" \
+              --platform IOS \
+              --testflight; then
             echo "[DEBUG] app-store-connect publish failed."
             echo "[DEBUG] Trying to print codemagic cli internal log path if available..."
-            LOG=$(ls -t /var/folders/*/*/*/codemagic-*.log 2>/dev/null | head -n1 || true)
-            if [ -n "$LOG" ]; then
-              echo "---- BEGIN codemagic-cli log: $LOG ----"
-              sed -n '1,220p' "$LOG" || true
-              echo "---- END codemagic-cli log ----"
-            else
-              echo "No codemagic-cli log file found."
-            fi
-
-            echo ">>> Fallback: xcrun altool upload"
-            xcrun altool --upload-app \
-              --file "$IPA" \
-              --type ios \
-              --apiKey "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
-              --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID" \
-              --output-format json
+            LOG_GLOB="/var/folders/*/*/T/codemagic-*.log"
+            ls -la $LOG_GLOB 2>/dev/null || true
+            echo "❌ Upload failed."
+            exit 1
           fi
-
-          echo "✅ Upload step finished (either primary or fallback)."
+          echo "✅ Upload queued."
 
     artifacts:
       - build/ios/ipa/*.ipa
