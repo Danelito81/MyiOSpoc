@@ -1,11 +1,19 @@
 workflows:
   ios_release:
     name: "TryggSamtal Release"
+
+    # --- App Store Connect Integration ---
+    # Replace the name below with the EXACT integration name from Codemagic UI
+    integrations:
+      app_store_connect: codemagic
+
     environment:
       xcode: latest
       groups:
-        - admin
+        - admin  # your ENV group containing DIST_P12_BASE64 + DIST_P12_PASSWORD
+
     scripts:
+      # --- Decode & verify the p12 certificate ---
       - name: Normalize & verify DIST_P12_BASE64
         script: |
           set -e
@@ -65,3 +73,26 @@ workflows:
           openssl pkcs12 -in ios_dist.p12 -nokeys -passin pass:"$DIST_P12_PASSWORD" -info -clcerts >/dev/null 2>&1 \
             || { echo '❌ Invalid password or corrupted p12'; exit 1; }
           echo "✅ PKCS#12 verified"
+
+      # --- Build IPA ---
+      - name: Build IPA
+        script: |
+          xcode-project build-ipa \
+            --project "$CM_BUILD_DIR/YourProject.xcodeproj" \
+            --scheme "YourScheme" \
+            --archive-flags "-destination 'generic/platform=iOS'"
+
+    # --- Automatic TestFlight Upload ---
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        expire_build_submitted_for_review: true
+
+        # Add your TestFlight group names here (must exist in App Store Connect)
+        # Example:
+        # beta_groups:
+        #   - Internal Testers
+
+        submit_to_app_store: false
+
