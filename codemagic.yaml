@@ -3,6 +3,8 @@ workflows:
     name: "TryggSamtal Release"
     environment:
       xcode: latest
+      groups:
+        - admin
     scripts:
       - name: Normalize & verify DIST_P12_BASE64
         script: |
@@ -14,7 +16,6 @@ workflows:
 
           if [ -z "$DIST_P12_BASE64" ]; then
             echo "❌ DIST_P12_BASE64 is EMPTY in this workflow."
-            echo "   → Check that the variable is defined and attached to this workflow in Codemagic."
             exit 1
           fi
 
@@ -38,7 +39,7 @@ workflows:
           raw = re.sub(r'\s+','', raw)
           print("After whitespace removal length:", len(raw))
 
-          raw = raw.replace('-','+').replace('_','/')
+          raw = raw.replace('-', '+').replace('_', '/')
           raw += '=' * (-len(raw) % 4)
 
           if not raw:
