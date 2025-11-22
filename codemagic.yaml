@@ -3,9 +3,8 @@ workflows:
     name: "TryggSamtal Release"
 
     # ---- App Store Connect integration ----
-    # Use the EXACT name of your Developer Portal integration from Codemagic
     integrations:
-      app_store_connect: codemagic
+      app_store_connect: codemagic   # <-- your integration name
 
     environment:
       xcode: latest
@@ -74,55 +73,12 @@ workflows:
             || { echo '❌ Invalid password or corrupted p12'; exit 1; }
           echo "✅ PKCS#12 verified"
 
-      # ---- Build IPA (simple auto-detect of workspace/project & scheme) ----
+      # ---- Simple build step: let Codemagic use its own config ----
       - name: Build IPA
         script: |
           set -e
-          echo "Looking for Xcode workspace/project under $CM_BUILD_DIR ..."
-
-          WORKSPACE=$(find "$CM_BUILD_DIR" -maxdepth 5 -name "*.xcworkspace" | head -n1 || true)
-          PROJECT=$(find "$CM_BUILD_DIR" -maxdepth 5 -name "*.xcodeproj" | head -n1 || true)
-
-          if [ -n "$WORKSPACE" ]; then
-            echo "✅ Found workspace: $WORKSPACE"
-            echo "Detecting scheme from workspace..."
-            SCHEME=$(xcodebuild -list -workspace "$WORKSPACE" 2>/dev/null \
-              | sed -n '/Schemes:/,/^$/p' \
-              | sed '1d' \
-              | sed '/^$/d' \
-              | head -n1 \
-              | sed 's/^[[:space:]]*//')
-            if [ -z "$SCHEME" ]; then
-              echo "❌ Could not detect a scheme from workspace."
-              exit 1
-            fi
-            echo "Using scheme: $SCHEME"
-            xcode-project build-ipa \
-              --workspace "$WORKSPACE" \
-              --scheme "$SCHEME" \
-              --archive-flags "-destination 'generic/platform=iOS'"
-          elif [ -n "$PROJECT" ]; then
-            echo "✅ Found project: $PROJECT"
-            echo "Detecting scheme from project..."
-            SCHEME=$(xcodebuild -list -project "$PROJECT" 2>/dev/null \
-              | sed -n '/Schemes:/,/^$/p' \
-              | sed '1d' \
-              | sed '/^$/d' \
-              | head -n1 \
-              | sed 's/^[[:space:]]*//')
-            if [ -z "$SCHEME" ]; then
-              echo "❌ Could not detect a scheme from project."
-              exit 1
-            fi
-            echo "Using scheme: $SCHEME"
-            xcode-project build-ipa \
-              --project "$PROJECT" \
-              --scheme "$SCHEME" \
-              --archive-flags "-destination 'generic/platform=iOS'"
-          else
-            echo "❌ No .xcworkspace or .xcodeproj found under $CM_BUILD_DIR"
-            exit 1
-          fi
+          echo "Building IPA using Codemagic Xcode project settings..."
+          xcode-project build-ipa
 
     # ---- Automatic TestFlight upload ----
     publishing:
