@@ -12,22 +12,34 @@ workflows:
           echo "Normalizing p12 Base64..."
           printf "%s" "$DIST_P12_BASE64" > dist_p12.raw.txt
 
-          python3 -c "
-import base64, re, sys
-raw = open('dist_p12.raw.txt','r').read().strip().strip('\"').strip(\"'\")
-raw = re.sub(r'^data:[^,]+,', '', raw)
-raw = raw.replace('\\n','').replace('\\r','')
-raw = re.sub(r'\s+','', raw)
-raw = raw.replace('-','+').replace('_','/')
-raw += '=' * (-len(raw) % 4)
-try:
-    decoded = base64.b64decode(raw)
-    open('ios_dist.p12','wb').write(decoded)
-    print('✅ Base64 OK, bytes:', len(decoded))
-except Exception as e:
-    print('❌ Decode failed:', e)
-    sys.exit(1)
-"
+          python3 - << 'PYCODE'
+          import base64, re, sys, pathlib, re as regex
+
+          raw_path = pathlib.Path('dist_p12.raw.txt')
+          raw = raw_path.read_text().strip().strip('"').strip("'")
+
+          # Remove potential data: URL prefix
+          raw = regex.sub(r'^data:[^,]+,', '', raw)
+
+          # Remove newlines and whitespace
+          raw = raw.replace('\n', '').replace('\r', '')
+          raw = regex.sub(r'\s+', '', raw)
+
+          # URL-safe base64 -> standard
+          raw = raw.replace('-', '+').replace('_', '/')
+
+          # Fix padding
+          raw += '=' * (-len(raw) % 4)
+
+          try:
+              decoded = base64.b64decode(raw)
+              with open('ios_dist.p12','wb') as f:
+                  f.write(decoded)
+              print('✅ Base64 OK, bytes:', len(decoded))
+          except Exception as e:
+              print('❌ Decode failed:', e)
+              sys.exit(1)
+          PYCODE
 
           openssl pkcs12 -in ios_dist.p12 -nokeys -passin pass:"$DIST_P12_PASSWORD" -info -clcerts >/dev/null 2>&1 \
             || { echo '❌ Invalid password or corrupted p12'; exit 1; }
