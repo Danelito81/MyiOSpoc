@@ -2,13 +2,15 @@ workflows:
   ios_release:
     name: "TryggSamtal Release"
 
+    # Use your App Store Connect API key integration
     integrations:
-      app_store_connect: codemagic  # your existing integration
+      app_store_connect: codemagic   # <-- the integration name you told me
 
     environment:
       xcode: latest
 
     scripts:
+      # 1) Generate Xcode project from project.yml (XcodeGen)
       - name: Generate Xcode project
         script: |
           set -e
@@ -36,7 +38,8 @@ workflows:
           ls
           echo
 
-      - name: Build IPA (automatic signing)
+      # 2) Build IPA – signing handled by Codemagic's iOS code signing config (UI)
+      - name: Build IPA
         script: |
           set -e
           cd "$CM_BUILD_DIR"
@@ -52,15 +55,25 @@ workflows:
 
           echo "Using project: $PROJECT"
           echo "Using scheme: $SCHEME"
-          echo "Building IPA with xcode-project (automatic signing via Codemagic)..."
 
+          echo "Building IPA with xcode-project..."
           xcode-project build-ipa \
             --project "$PROJECT" \
             --scheme "$SCHEME"
 
+    # 3) Publish the IPA to App Store Connect / TestFlight
     publishing:
       app_store_connect:
+        # This tells Codemagic to use the API key from the 'codemagic' integration
         auth: integration
+
+        # ---- TestFlight (from docs snippet) ----
         submit_to_testflight: true
         expire_build_submitted_for_review: true
+        # Optional: name of your TestFlight beta group(s) in App Store Connect
+        # beta_groups:
+        #   - Internal Testers
+
+        # ---- App Store (keep off for now) ----
         submit_to_app_store: false
+        # cancel_previous_submissions: true  # only valid if submit_to_app_store: true
