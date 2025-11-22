@@ -5,7 +5,7 @@ workflows:
     # ---- App Store Connect integration ----
     # Use the EXACT name of your Developer Portal integration from Codemagic
     integrations:
-      app_store_connect: YOUR_INTEGRATION_NAME_HERE
+      app_store_connect: codemagic
 
     environment:
       xcode: latest
