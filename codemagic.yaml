@@ -4,7 +4,7 @@ workflows:
 
     # ---- App Store Connect integration ----
     integrations:
-      app_store_connect: codemagic   # <-- your integration name
+      app_store_connect: codemagic   # your Developer Portal integration name
 
     environment:
       xcode: latest
@@ -73,19 +73,55 @@ workflows:
             || { echo '❌ Invalid password or corrupted p12'; exit 1; }
           echo "✅ PKCS#12 verified"
 
-      # ---- Generate Xcode project from project.yml & build IPA ----
+      # ---- Generate Xcode project with XcodeGen & build IPA ----
       - name: Generate Xcode project and build IPA
         script: |
           set -e
           cd "$CM_BUILD_DIR"
 
+          echo "Top-level contents:"
+          ls
+          echo
+
+          if [ ! -f "project.yml" ]; then
+            echo "❌ project.yml not found in $CM_BUILD_DIR"
+            exit 1
+          fi
+
+          # Install XcodeGen if missing
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            echo "Installing XcodeGen via Homebrew..."
+            brew install xcodegen
+          fi
+
           echo "Generating Xcode project with XcodeGen..."
           xcodegen generate
 
-          PROJECT=$(find "$CM_BUILD_DIR" -maxdepth 1 -name "*.xcodeproj" | head -n1)
+          echo "Contents after xcodegen:"
+          ls
+          echo
 
-          echo "Using project: $PROJECT"
-          SCHEME=$(xcodebuild -list -project "$PROJECT" | sed -n '/Schemes:/,/^$/p' | sed '1d' | sed '/^$/d' | head -n1 | sed 's/^[[:space:]]*//')
+          PROJECT=$(find "$CM_BUILD_DIR" -maxdepth 1 -name "*.xcodeproj" | head -n1 || true)
+          if [ -z "$PROJECT" ]; then
+            echo "❌ No .xcodeproj found after xcodegen generate."
+            ls -R
+            exit 1
+          fi
+
+          echo "✅ Using project: $PROJECT"
+          echo "Detecting scheme from project..."
+          SCHEME=$(xcodebuild -list -project "$PROJECT" 2>/dev/null \
+            | sed -n '/Schemes:/,/^$/p' \
+            | sed '1d' \
+            | sed '/^$/d' \
+            | head -n1 \
+            | sed 's/^[[:space:]]*//')
+          if [ -z "$SCHEME" ]; then
+            echo "❌ Could not detect a scheme from project."
+            xcodebuild -list -project "$PROJECT"
+            exit 1
+          fi
+
           echo "Using scheme: $SCHEME"
 
           echo "Creating export_options.plist..."
@@ -116,7 +152,7 @@ workflows:
           xcode-project build-ipa \
             --project "$PROJECT" \
             --scheme "$SCHEME" \
-            --export-options-plist "$CM_BUILD_DIR/export_options.plist"
+            --export-options-plist "export_options.plist"
 
     # ---- Automatic TestFlight upload ----
     publishing:
