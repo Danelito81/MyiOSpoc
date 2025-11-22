@@ -9,6 +9,10 @@ workflows:
     environment:
       xcode: latest
 
+    ios_signing:
+      distribution_type: app.store
+      bundle_identifier: com.yourname.tryggsamtal
+    
     scripts:
       # 1) Generate Xcode project from project.yml (XcodeGen)
       - name: Generate Xcode project
