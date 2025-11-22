@@ -2,18 +2,18 @@ workflows:
   ios_release:
     name: "TryggSamtal Release"
 
-    # --- App Store Connect Integration ---
-    # Replace the name below with the EXACT integration name from Codemagic UI
+    # ---- App Store Connect integration ----
+    # Use the EXACT name of your Developer Portal integration from Codemagic
     integrations:
-      app_store_connect: codemagic
+      app_store_connect: YOUR_INTEGRATION_NAME_HERE
 
     environment:
       xcode: latest
       groups:
-        - admin  # your ENV group containing DIST_P12_BASE64 + DIST_P12_PASSWORD
+        - admin   # this is where DIST_P12_BASE64 and DIST_P12_PASSWORD live
 
     scripts:
-      # --- Decode & verify the p12 certificate ---
+      # ---- p12: decode + verify (this is the version we used to get green) ----
       - name: Normalize & verify DIST_P12_BASE64
         script: |
           set -e
@@ -74,25 +74,32 @@ workflows:
             || { echo '❌ Invalid password or corrupted p12'; exit 1; }
           echo "✅ PKCS#12 verified"
 
-      # --- Build IPA ---
-      - name: Build IPA
-        script: |
-          xcode-project build-ipa \
-            --project "$CM_BUILD_DIR/YourProject.xcodeproj" \
-            --scheme "YourScheme" \
-            --archive-flags "-destination 'generic/platform=iOS'"
+      # ---- ⬇️ PASTE YOUR EXISTING WORKING BUILD STEPS HERE, UNCHANGED ⬇️ ----
+      # Example (DO NOT use this if you already have something working):
+      # - name: Build iOS app
+      #   script: |
+      #     xcode-project build-ipa \
+      #       --workspace "YourWorkspace.xcworkspace" \
+      #       --scheme "YourScheme"
+      #
+      # Keep whatever was there when you got the first successful build.
+      # ------------------------------------------------------------------
 
-    # --- Automatic TestFlight Upload ---
+    # ---- Automatic TestFlight upload ----
     publishing:
       app_store_connect:
         auth: integration
+
+        # TestFlight
         submit_to_testflight: true
         expire_build_submitted_for_review: true
 
-        # Add your TestFlight group names here (must exist in App Store Connect)
-        # Example:
+        # Optional: only if you have groups created in App Store Connect
         # beta_groups:
         #   - Internal Testers
 
+        # App Store (keep off for now)
         submit_to_app_store: false
+        cancel_previous_submissions: false
+
 
