@@ -73,7 +73,7 @@ workflows:
             || { echo '❌ Invalid password or corrupted p12'; exit 1; }
           echo "✅ PKCS#12 verified"
 
-      # ---- Generate Xcode project with XcodeGen & build IPA with profiles ----
+      # ---- Generate Xcode project, configure signing, and build IPA ----
       - name: Generate Xcode project and build IPA
         script: |
           set -e
@@ -124,7 +124,13 @@ workflows:
 
           echo "Using scheme: $SCHEME"
 
-          # ---- Configure signing with your p12 + provisioning profile ----
+          # ---- Add certificate to keychain ----
+          echo "Adding signing certificate to keychain..."
+          keychain add-certificates \
+            --certificate ios_dist.p12 \
+            --certificate-password "$DIST_P12_PASSWORD"
+
+          # ---- Apply provisioning profile to project ----
           if [ ! -f "profiles/TryggsamtalDist.mobileprovision" ]; then
             echo "❌ profiles/TryggsamtalDist.mobileprovision not found"
             ls profiles || true
@@ -134,40 +140,13 @@ workflows:
           echo "Configuring code signing with xcode-project use-profiles..."
           xcode-project use-profiles \
             --project "$PROJECT" \
-            --scheme "$SCHEME" \
-            --certificate "ios_dist.p12" \
-            --certificate-password "$DIST_P12_PASSWORD" \
-            --provisioning-profile "profiles/TryggsamtalDist.mobileprovision"
-
-          echo "Creating export_options.plist..."
-          cat <<EOF > export_options.plist
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>app-store</string>
-            <key>signingStyle</key>
-            <string>manual</string>
-            <key>compileBitcode</key>
-            <false/>
-            <key>stripSwiftSymbols</key>
-            <true/>
-            <key>destination</key>
-            <string>export</string>
-            <key>uploadBitcode</key>
-            <false/>
-            <key>uploadSymbols</key>
-            <true/>
-          </dict>
-          </plist>
-          EOF
+            --profile "profiles/TryggsamtalDist.mobileprovision"
 
           echo "Building IPA…"
           xcode-project build-ipa \
             --project "$PROJECT" \
             --scheme "$SCHEME" \
-            --export-options-plist "export_options.plist"
+            --export-options-plist "/Users/builder/export_options.plist"
 
     # ---- Automatic TestFlight upload ----
     publishing:
