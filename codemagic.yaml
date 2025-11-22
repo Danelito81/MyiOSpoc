@@ -73,7 +73,7 @@ workflows:
             || { echo '❌ Invalid password or corrupted p12'; exit 1; }
           echo "✅ PKCS#12 verified"
 
-      # ---- Generate Xcode project with XcodeGen & build IPA ----
+      # ---- Generate Xcode project with XcodeGen & build IPA with profiles ----
       - name: Generate Xcode project and build IPA
         script: |
           set -e
@@ -123,6 +123,21 @@ workflows:
           fi
 
           echo "Using scheme: $SCHEME"
+
+          # ---- Configure signing with your p12 + provisioning profile ----
+          if [ ! -f "profiles/TryggsamtalDist.mobileprovision" ]; then
+            echo "❌ profiles/TryggsamtalDist.mobileprovision not found"
+            ls profiles || true
+            exit 1
+          fi
+
+          echo "Configuring code signing with xcode-project use-profiles..."
+          xcode-project use-profiles \
+            --project "$PROJECT" \
+            --scheme "$SCHEME" \
+            --certificate "ios_dist.p12" \
+            --certificate-password "$DIST_P12_PASSWORD" \
+            --provisioning-profile "profiles/TryggsamtalDist.mobileprovision"
 
           echo "Creating export_options.plist..."
           cat <<EOF > export_options.plist
