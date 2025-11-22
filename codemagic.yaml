@@ -79,54 +79,44 @@ workflows:
           set -e
           cd "$CM_BUILD_DIR"
 
-          echo "Top-level contents:"
-          ls
-          echo
-
-          if [ ! -f "project.yml" ]; then
-            echo "❌ project.yml not found in $CM_BUILD_DIR"
-            exit 1
-          fi
-
-          # Install XcodeGen if needed
-          if ! command -v xcodegen >/dev/null 2>&1; then
-            echo "Installing XcodeGen..."
-            brew install xcodegen
-          fi
-
           echo "Generating Xcode project with XcodeGen..."
           xcodegen generate
 
-          echo "Contents after xcodegen:"
-          ls
-          echo
+          PROJECT=$(find "$CM_BUILD_DIR" -maxdepth 1 -name "*.xcodeproj" | head -n1)
 
-          PROJECT=$(find "$CM_BUILD_DIR" -maxdepth 2 -name "*.xcodeproj" | head -n1 || true)
-          if [ -z "$PROJECT" ]; then
-            echo "❌ No .xcodeproj found after xcodegen generate."
-            ls -R
-            exit 1
-          fi
-
-          echo "✅ Using project: $PROJECT"
-          echo "Detecting scheme from project..."
-          SCHEME=$(xcodebuild -list -project "$PROJECT" 2>/dev/null \
-            | sed -n '/Schemes:/,/^$/p' \
-            | sed '1d' \
-            | sed '/^$/d' \
-            | head -n1 \
-            | sed 's/^[[:space:]]*//')
-          if [ -z "$SCHEME" ]; then
-            echo "❌ Could not detect a scheme from project."
-            xcodebuild -list -project "$PROJECT"
-            exit 1
-          fi
-
+          echo "Using project: $PROJECT"
+          SCHEME=$(xcodebuild -list -project "$PROJECT" | sed -n '/Schemes:/,/^$/p' | sed '1d' | sed '/^$/d' | head -n1 | sed 's/^[[:space:]]*//')
           echo "Using scheme: $SCHEME"
+
+          echo "Creating export_options.plist..."
+          cat <<EOF > export_options.plist
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>compileBitcode</key>
+            <false/>
+            <key>stripSwiftSymbols</key>
+            <true/>
+            <key>destination</key>
+            <string>export</string>
+            <key>uploadBitcode</key>
+            <false/>
+            <key>uploadSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          EOF
+
+          echo "Building IPA…"
           xcode-project build-ipa \
             --project "$PROJECT" \
             --scheme "$SCHEME" \
-            --archive-flags "-destination 'generic/platform=iOS'"
+            --export-options-plist "$CM_BUILD_DIR/export_options.plist"
 
     # ---- Automatic TestFlight upload ----
     publishing:
