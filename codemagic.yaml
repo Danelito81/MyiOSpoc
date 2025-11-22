@@ -2,79 +2,14 @@ workflows:
   ios_release:
     name: "TryggSamtal Release"
 
-    # ---- App Store Connect integration ----
     integrations:
-      app_store_connect: codemagic   # your Developer Portal integration name
+      app_store_connect: codemagic  # your existing integration
 
     environment:
       xcode: latest
-      groups:
-        - admin   # DIST_P12_BASE64 and DIST_P12_PASSWORD live here
 
     scripts:
-      # ---- p12: decode + verify (already working) ----
-      - name: Normalize & verify DIST_P12_BASE64
-        script: |
-          set -e
-          echo "== ENV DIAGNOSTICS =="
-          echo "DIST_P12_BASE64 length: ${#DIST_P12_BASE64}"
-          echo "DIST_P12_BASE64 first 60 chars: ${DIST_P12_BASE64:0:60}"
-          echo ""
-
-          if [ -z "$DIST_P12_BASE64" ]; then
-            echo "❌ DIST_P12_BASE64 is EMPTY in this workflow."
-            exit 1
-          fi
-
-          echo "Normalizing p12 Base64..."
-          printf "%s" "$DIST_P12_BASE64" > dist_p12.raw.txt
-
-          python3 - << 'PYCODE'
-          import base64, re, sys, pathlib
-
-          raw_path = pathlib.Path('dist_p12.raw.txt')
-          raw = raw_path.read_text()
-          print("Raw file length:", len(raw))
-
-          raw = raw.strip().strip('"').strip("'")
-          print("After strip/quotes length:", len(raw))
-
-          raw = re.sub(r'^data:[^,]+,', '', raw)
-          print("After data: URL removal length:", len(raw))
-
-          raw = raw.replace('\n','').replace('\r','')
-          raw = re.sub(r'\s+','', raw)
-          print("After whitespace removal length:", len(raw))
-
-          raw = raw.replace('-', '+').replace('_', '/')
-          raw += '=' * (-len(raw) % 4)
-
-          if not raw:
-            print('❌ Raw Base64 is empty after normalization.')
-            sys.exit(1)
-
-          try:
-            decoded = base64.b64decode(raw)
-          except Exception as e:
-            print('❌ Decode failed:', e)
-            sys.exit(1)
-
-          print("Decoded bytes length:", len(decoded))
-          if not decoded:
-            print('❌ Decoded p12 is EMPTY (0 bytes). Check DIST_P12_BASE64 value.')
-            sys.exit(1)
-
-          with open('ios_dist.p12','wb') as f:
-            f.write(decoded)
-          print('✅ Base64 OK, bytes:', len(decoded))
-          PYCODE
-
-          openssl pkcs12 -in ios_dist.p12 -nokeys -passin pass:"$DIST_P12_PASSWORD" -info -clcerts >/dev/null 2>&1 \
-            || { echo '❌ Invalid password or corrupted p12'; exit 1; }
-          echo "✅ PKCS#12 verified"
-
-      # ---- Generate Xcode project, configure signing, and build IPA ----
-      - name: Generate Xcode project and build IPA
+      - name: Generate Xcode project
         script: |
           set -e
           cd "$CM_BUILD_DIR"
@@ -88,7 +23,7 @@ workflows:
             exit 1
           fi
 
-          # Install XcodeGen if missing
+          # Install XcodeGen if needed
           if ! command -v xcodegen >/dev/null 2>&1; then
             echo "Installing XcodeGen via Homebrew..."
             brew install xcodegen
@@ -101,65 +36,31 @@ workflows:
           ls
           echo
 
-          PROJECT=$(find "$CM_BUILD_DIR" -maxdepth 1 -name "*.xcodeproj" | head -n1 || true)
-          if [ -z "$PROJECT" ]; then
-            echo "❌ No .xcodeproj found after xcodegen generate."
-            ls -R
+      - name: Build IPA (automatic signing)
+        script: |
+          set -e
+          cd "$CM_BUILD_DIR"
+
+          PROJECT="$CM_BUILD_DIR/TryggSamtal.xcodeproj"
+          SCHEME="TryggSamtal"
+
+          if [ ! -d "$PROJECT" ]; then
+            echo "❌ Project not found at $PROJECT"
+            ls
             exit 1
           fi
 
-          echo "✅ Using project: $PROJECT"
-          echo "Detecting scheme from project..."
-          SCHEME=$(xcodebuild -list -project "$PROJECT" 2>/dev/null \
-            | sed -n '/Schemes:/,/^$/p' \
-            | sed '1d' \
-            | sed '/^$/d' \
-            | head -n1 \
-            | sed 's/^[[:space:]]*//')
-          if [ -z "$SCHEME" ]; then
-            echo "❌ Could not detect a scheme from project."
-            xcodebuild -list -project "$PROJECT"
-            exit 1
-          fi
-
+          echo "Using project: $PROJECT"
           echo "Using scheme: $SCHEME"
+          echo "Building IPA with xcode-project (automatic signing via Codemagic)..."
 
-          # ---- Add certificate to keychain ----
-          echo "Adding signing certificate to keychain..."
-          keychain add-certificates \
-            --certificate ios_dist.p12 \
-            --certificate-password "$DIST_P12_PASSWORD"
-
-          # ---- Apply provisioning profile to project ----
-          if [ ! -f "profiles/TryggsamtalDist.mobileprovision" ]; then
-            echo "❌ profiles/TryggsamtalDist.mobileprovision not found"
-            ls profiles || true
-            exit 1
-          fi
-
-          echo "Configuring code signing with xcode-project use-profiles..."
-          xcode-project use-profiles \
-            --project "$PROJECT" \
-            --profile "profiles/TryggsamtalDist.mobileprovision"
-
-          echo "Building IPA…"
           xcode-project build-ipa \
             --project "$PROJECT" \
-            --scheme "$SCHEME" \
-            --export-options-plist "/Users/builder/export_options.plist"
+            --scheme "$SCHEME"
 
-    # ---- Automatic TestFlight upload ----
     publishing:
       app_store_connect:
         auth: integration
-
-        # TestFlight
         submit_to_testflight: true
         expire_build_submitted_for_review: true
-
-        # Optional: only if you have groups created in App Store Connect
-        # beta_groups:
-        #   - Internal Testers
-
-        # App Store (keep off for now)
         submit_to_app_store: false
