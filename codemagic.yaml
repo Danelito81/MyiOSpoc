@@ -3,42 +3,62 @@ workflows:
     name: "TryggSamtal Release"
     environment:
       xcode: latest
-      vars:
-        DIST_P12_PASSWORD: Entersamepassword
     scripts:
       - name: Normalize & verify DIST_P12_BASE64
         script: |
           set -e
+          echo "== ENV DIAGNOSTICS =="
+          echo "DIST_P12_BASE64 length: ${#DIST_P12_BASE64}"
+          echo "DIST_P12_BASE64 first 60 chars: ${DIST_P12_BASE64:0:60}"
+          echo ""
+
+          if [ -z "$DIST_P12_BASE64" ]; then
+            echo "❌ DIST_P12_BASE64 is EMPTY in this workflow."
+            echo "   → Check that the variable is defined and attached to this workflow in Codemagic."
+            exit 1
+          fi
+
           echo "Normalizing p12 Base64..."
           printf "%s" "$DIST_P12_BASE64" > dist_p12.raw.txt
 
           python3 - << 'PYCODE'
-          import base64, re, sys, pathlib, re as regex
+          import base64, re, sys, pathlib
 
           raw_path = pathlib.Path('dist_p12.raw.txt')
-          raw = raw_path.read_text().strip().strip('"').strip("'")
+          raw = raw_path.read_text()
+          print("Raw file length:", len(raw))
 
-          # Remove potential data: URL prefix
-          raw = regex.sub(r'^data:[^,]+,', '', raw)
+          raw = raw.strip().strip('"').strip("'")
+          print("After strip/quotes length:", len(raw))
 
-          # Remove newlines and whitespace
-          raw = raw.replace('\n', '').replace('\r', '')
-          raw = regex.sub(r'\s+', '', raw)
+          raw = re.sub(r'^data:[^,]+,', '', raw)
+          print("After data: URL removal length:", len(raw))
 
-          # URL-safe base64 -> standard
-          raw = raw.replace('-', '+').replace('_', '/')
+          raw = raw.replace('\n','').replace('\r','')
+          raw = re.sub(r'\s+','', raw)
+          print("After whitespace removal length:", len(raw))
 
-          # Fix padding
+          raw = raw.replace('-','+').replace('_','/')
           raw += '=' * (-len(raw) % 4)
 
+          if not raw:
+            print('❌ Raw Base64 is empty after normalization.')
+            sys.exit(1)
+
           try:
-              decoded = base64.b64decode(raw)
-              with open('ios_dist.p12','wb') as f:
-                  f.write(decoded)
-              print('✅ Base64 OK, bytes:', len(decoded))
+            decoded = base64.b64decode(raw)
           except Exception as e:
-              print('❌ Decode failed:', e)
-              sys.exit(1)
+            print('❌ Decode failed:', e)
+            sys.exit(1)
+
+          print("Decoded bytes length:", len(decoded))
+          if not decoded:
+            print('❌ Decoded p12 is EMPTY (0 bytes). Check DIST_P12_BASE64 value.')
+            sys.exit(1)
+
+          with open('ios_dist.p12','wb') as f:
+            f.write(decoded)
+          print('✅ Base64 OK, bytes:', len(decoded))
           PYCODE
 
           openssl pkcs12 -in ios_dist.p12 -nokeys -passin pass:"$DIST_P12_PASSWORD" -info -clcerts >/dev/null 2>&1 \
