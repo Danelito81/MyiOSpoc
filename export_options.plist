@@ -4,11 +4,9 @@
 <dict>
   <key>method</key>
   <string>app-store</string>
+  <key>signingStyle</key>
+  <string>automatic</string>
   <key>teamID</key>
-  <string></string>  <!-- Leave empty for automatic -->
-  <key>uploadBitcode</key>
-  <false/>
-  <key>uploadSymbols</key>
-  <true/>
+  <string>YOUR_TEAM_ID</string>
 </dict>
 </plist>
