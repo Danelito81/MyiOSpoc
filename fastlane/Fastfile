@@ -10,20 +10,14 @@ platform :ios do
       key_content: ENV["ASC_KEY_CONTENT"]
     )
 
-    # Use gym instead of xcodebuild — it handles SPM better and skips prompts
-    gym(
-      scheme: "TryggSamtalApp",
-      configuration: "Release",
-      export_method: "app-store",
-      clean: true,
-      silent: true,  # No prompts in CI
-      export_options: {
-        compileBitcode: false,
-        uploadBitcode: false,
-        uploadSymbols: true
-      },
-      derivedDataPath: "build"  # Matches your current
-    )
+       gym(
+         scheme: "TryggSamtalApp",
+         configuration: "Release",
+         export_method: "app-store",
+         clean: true,
+         silent: true,
+         derived_data_path: "build"   # ← THIS WAS THE ONLY BUG
+       )
 
     upload_to_testflight(
       api_key: api_key,
