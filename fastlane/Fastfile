@@ -3,23 +3,25 @@ default_platform(:ios)
 platform :ios do
   desc "Build and upload to TestFlight"
   lane :beta do
-    app_identifier = "com.yourname.tryggaamtal"  # ← Update this to your exact Bundle ID from App Store Connect > TryggSamtal > General
+    app_identifier = "YOUR_EXACT_BUNDLE_ID"  # ← put your real one here
 
     api_key = app_store_connect_api_key(
       key_id: ENV["APP_STORE_CONNECT_KEY_ID"],
       issuer_id: ENV["APP_STORE_CONNECT_ISSUER_ID"],
-      key_filepath: ENV["APP_STORE_CONNECT_PRIVATE_KEY_PATH"],
-      duration: 1200,
-      in_house: false
+      key_filepath: ENV["APP_STORE_CONNECT_PRIVATE_KEY_PATH"]
     )
 
-    # Skip latest build check for now — set to 1 for first upload
-    increment_build_number(
-      build_number: "1"
+    cocoapods(
+      clean_install: true,
+      podfile: "Podfile"
     )
 
-    build_app(
-      export_method: "app-store"
+    increment_build_number(build_number: "1")
+
+    gym(
+      scheme: "TryggSamtalApp",
+      export_method: "app-store",
+      clean: true
     )
 
     upload_to_testflight(
