@@ -5,8 +5,10 @@
   <key>method</key>
   <string>app-store</string>
   <key>signingStyle</key>
-  <string>automatic</string>
+  <string>manual</string>
+  <key>provisioningProfiles</key>
+  <dict/>
   <key>teamID</key>
-  <string>YOUR_TEAM_ID</string>
+  <string>93397B64RG</string>
 </dict>
 </plist>
