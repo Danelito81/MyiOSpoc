@@ -5,29 +5,109 @@
 	objectVersion = 56;
 	objects = {
 
-/* Begin PBXProject section */
-		"TryggSamtalApp" /* Project object */ = {
-			isa = PBXProject;
-			attributes = {
-				LastUpgradeCheck = 9999;
-			};
-			buildConfigurationList = "ConfigList" /* Build configuration list */;
-			compatibilityVersion = "Xcode 14.0";
-			developmentRegion = en;
-			hasScannedForEncodings = 0;
-			knownRegions = (
-				en,
-				Base,
-			);
-			mainGroup = "MainGroup";
-			productRefGroup = "Products";
-			projectDirPath = "";
-			projectRoot = "";
-			targets = (
-				"TryggSamtalApp" /* TryggSamtalApp */,
-			);
+/* Begin PBXAggregateTarget section */
+		"PBXAggregateTarget" = {
+			isa = PBXAggregateTarget;
+			buildConfigurationList = "PBXAggregateTargetConfigList";
+			buildPhases = ();
+			buildRules = ();
+			comments = "";
+			dependencies = ();
+			name = Aggregate;
+			productName = Aggregate;
 		};
-/* End PBXProject section */
+/* End PBXAggregateTarget section */
+
+/* Begin PBXBuildFile section */
+		"PBXBuildFile" = {
+			isa = PBXBuildFile;
+			fileRef = "Info.plist";
+		};
+		"PBXBuildFile-Resources" = {
+			isa = PBXBuildFile;
+			fileRef = "Resources";
+		};
+		"PBXBuildFile-Sources" = {
+			isa = PBXBuildFile;
+			fileRef = "TryggSamtalApp.swift";
+		};
+		"PBXBuildFile-Audio" = {
+			isa = PBXBuildFile;
+			fileRef = "Audio";
+		};
+		"PBXBuildFile-Detection" = {
+			isa = PBXBuildFile;
+			fileRef = "Detection";
+		};
+		"PBXBuildFile-STT" = {
+			isa = PBXBuildFile;
+			fileRef = "STT";
+		};
+		"PBXBuildFile-Services" = {
+			isa = PBXBuildFile;
+			fileRef = "Services";
+		};
+		"PBXBuildFile-UI" = {
+			isa = PBXBuildFile;
+			fileRef = "UI";
+		};
+/* End PBXBuildFile section */
+
+/* Begin PBXContainers section */
+		"PBXContainers" = {
+			isa = PBXContainers;
+		};
+/* End PBXContainers section */
+
+/* Begin PBXFileReference section */
+		"Info.plist" = { isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = Info.plist; sourceTree = "<group>"; };
+		"TryggSamtalApp.swift" = { isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = TryggSamtalApp.swift; path = TryggSamtalApp.swift; sourceTree = "<group>"; };
+		"Resources" = { isa = PBXFileReference; lastKnownFileType = folder; name = Resources; path = Resources; sourceTree = "<group>"; };
+		"Audio" = { isa = PBXFileReference; lastKnownFileType = folder; name = Audio; path = Audio; sourceTree = "<group>"; };
+		"Detection" = { isa = PBXFileReference; lastKnownFileType = folder; name = Detection; path = Detection; sourceTree = "<group>"; };
+		"STT" = { isa = PBXFileReference; lastKnownFileType = folder; name = STT; path = STT; sourceTree = "<group>"; };
+		"Services" = { isa = PBXFileReference; lastKnownFileType = folder; name = Services; path = Services; sourceTree = "<group>"; };
+		"UI" = { isa = PBXFileReference; lastKnownFileType = folder; name = UI; path = UI; sourceTree = "<group>"; };
+		"TryggSamtalApp.app" = { isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TryggSamtalApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		"Frameworks" = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		"MainGroup" = {
+			isa = PBXGroup;
+			children = (
+				"Info.plist",
+				"TryggSamtalApp.swift",
+				"Audio",
+				"Detection",
+				"Resources",
+				"STT",
+				"Services",
+				"UI",
+				"Products",
+			);
+			name = TryggSamtalApp;
+			path = TryggSamtalApp;
+			sourceTree = SOURCE_ROOT;
+		};
+		"Products" = {
+			isa = PBXGroup;
+			children = (
+				"TryggSamtalApp.app",
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
 		"TryggSamtalApp" /* TryggSamtalApp */ = {
@@ -38,15 +118,139 @@
 				"Frameworks",
 				"Resources",
 			);
-			buildRules = ();
-			dependencies = ();
+			buildRules = (
+			);
+			dependencies = (
+			);
 			name = TryggSamtalApp;
-			packageProductDependencies = ();
 			productName = TryggSamtalApp;
 			productReference = "TryggSamtalApp.app";
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		"TryggSamtalApp" /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastUpgradeCheck = 1490;
+				ORGANIZATIONNAME = "Danelito81";
+			};
+			buildConfigurationList = "ConfigList";
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = MainGroup;
+			productRefGroup = Products;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				"TryggSamtalApp",
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		"Resources" = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				"PBXBuildFile-Resources",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		/* Empty */;
+		/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		"Sources" = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				"PBXBuildFile-Sources",
+				"PBXBuildFile-Audio",
+				"PBXBuildFile-Detection",
+				"PBXBuildFile-STT",
+				"PBXBuildFile-Services",
+				"PBXBuildFile-UI",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		/* Empty */;
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		"Config-Debug" = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APP_ICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_LAUNCH_IMAGE_NAME = LaunchImage;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_TESTABILITY = YES;
+				INFOPLIST_FILE = TryggSamtalApp/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.yourname.tryggsamtal";  // ← Update to your exact Bundle ID
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				VERSIONING_SYSTEM = "apple-generic";
+			};
+			name = Debug;
+		};
+		"Config-Release" = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APP_ICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_LAUNCH_IMAGE_NAME = LaunchImage;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				INFOPLIST_FILE = TryggSamtalApp/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.yourname.tryggsamtal";  // ← Update to your exact Bundle ID
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				VERSIONING_SYSTEM = "apple-generic";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		"ConfigList" = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				"Config-Debug",
+				"Config-Release",
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		"TargetConfigList" = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				"Config-Debug",
+				"Config-Release",
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
 
 	};
 	rootObject = "TryggSamtalApp" /* Project object */;
