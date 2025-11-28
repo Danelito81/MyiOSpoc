@@ -1,15 +1,25 @@
-name: TestFlight
-on: [workflow_dispatch]
+name: Deploy iOS to TestFlight
+
+on:
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
-      - uses: ruby/setup-ruby@v1
-        with: ruby-version: '3.2'
-      - run: bundle install
-      - run: bundle exec fastlane beta
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+
+      - name: Install Fastlane
+        run: bundle install
+
+      - name: Build and upload to TestFlight
+        run: bundle exec fastlane beta
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
