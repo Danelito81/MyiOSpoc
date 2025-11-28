@@ -4,7 +4,10 @@
 <dict>
   <key>method</key>
   <string>app-store</string>
-  <key>compileBitcode</key>
-  <false/>
+  <key>provisioningProfiles</key>
+  <dict>
+    <key>com.yourname.tryggsamtal</key>
+    <string>*</string>
+  </dict>
 </dict>
 </plist>
