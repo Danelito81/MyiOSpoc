@@ -2,25 +2,24 @@ default_platform(:ios)
 
 platform :ios do
   lane :beta do
-    app_identifier = "com.yourname.tryggsamtal"
-
     api_key = app_store_connect_api_key(
       key_id: ENV["ASC_KEY_ID"],
       issuer_id: ENV["ASC_ISSUER_ID"],
       key_content: ENV["ASC_KEY_CONTENT"]
     )
 
-       gym(
-         workspace: ".",   # ← THIS LINE IS THE FIX
-         scheme: "TryggSamtalApp",
-         configuration: "Release",
-         export_method: "app-store",
-         clean: true,
-         silent: true
-       )
+    # Build the SPM package directly — no Xcode project, no workspace, no gym
+    sh "xcodebuild -scheme TryggSamtalApp -configuration Release -sdk iphoneos -derivedDataPath build clean build"
 
+    # Create IPA manually
+    sh "mkdir -p Payload"
+    sh "cp -r build/Build/Products/Release-iphoneos/TryggSamtalApp.app Payload/"
+    sh "zip -r TryggSamtalApp.ipa Payload"
+
+    # Upload
     upload_to_testflight(
       api_key: api_key,
+      ipa: "TryggSamtalApp.ipa",
       skip_waiting_for_build_processing: true
     )
   end
