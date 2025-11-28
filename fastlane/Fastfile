@@ -11,12 +11,12 @@ platform :ios do
     )
 
        gym(
+         workspace: ".",   # ← THIS LINE IS THE FIX
          scheme: "TryggSamtalApp",
          configuration: "Release",
          export_method: "app-store",
          clean: true,
-         silent: true,
-         derived_data_path: "build"   # ← THIS WAS THE ONLY BUG
+         silent: true
        )
 
     upload_to_testflight(
