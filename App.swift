@@ -1,9 +1,12 @@
-@main
 import SwiftUI
-struct ContentView: View {
-    var body: some View {
-        Text("TryggSamtal TestFlight Works! 🎉")
-            .font(.largeTitle)
-            .padding()
+
+@main
+struct TryggSamtalApp: App {
+    var body: some Scene {
+        WindowGroup {
+            Text("TryggSamtal in TestFlight! IT WORKS! 🎉")
+                .font(.largeTitle)
+                .padding()
+        }
     }
 }
