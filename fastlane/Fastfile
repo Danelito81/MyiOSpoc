@@ -8,11 +8,9 @@ platform :ios do
       key_content: ENV["ASC_KEY_CONTENT"]
     )
 
-    xcodebuild(
+    gym(
       scheme: "TryggSamtalApp",
-      configuration: "Release",
       export_method: "app-store",
-      derivedDataPath: "build",
       clean: true
     )
 
