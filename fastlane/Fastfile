@@ -3,8 +3,7 @@ default_platform(:ios)
 platform :ios do
   desc "Build and upload to TestFlight"
   lane :beta do
-    # ←←← ADD YOUR BUNDLE ID HERE (replace the example)
-    app_identifier = "com.yourname.tryggsamtal"   # ← CHANGE THIS!
+    app_identifier = "com.yourname.tryggaamtal"  # ← Update this to your exact Bundle ID from App Store Connect > TryggSamtal > General
 
     api_key = app_store_connect_api_key(
       key_id: ENV["APP_STORE_CONNECT_KEY_ID"],
@@ -14,11 +13,9 @@ platform :ios do
       in_house: false
     )
 
+    # Skip latest build check for now — set to 1 for first upload
     increment_build_number(
-      build_number: latest_testflight_build_number(
-        api_key: api_key,
-        app_identifier: app_identifier
-      ) + 1
+      build_number: "1"
     )
 
     build_app(
