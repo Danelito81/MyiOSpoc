@@ -3,38 +3,31 @@ default_platform(:ios)
 platform :ios do
   desc "Build and upload to TestFlight"
   lane :beta do
-api_key = app_store_connect_api_key(
-  key_id: ENV["APP_STORE_CONNECT_API_KEY_ID"],
-  issuer_id: ENV["APP_STORE_CONNECT_API_KEY_ISSUER_ID"],
-  key_filepath: ENV["APP_STORE_CONNECT_API_KEY_PATH"],
-  duration: 1200,
-  in_house: false
-)
-
-    # Automatic code signing - requires Git repo for Match, but for simplicity, we'll use manual or auto
-    # If you have certs set up, use match(type: "appstore", api_key: api_key)
-    increment_build_number(build_number: latest_testflight_build_number(api_key: api_key) + 1)
-    
-    build_app(
-      scheme: "Runner", # For Flutter; change to your Xcode scheme if different
-      export_method: "app-store"
+    api_key = app_store_connect_api_key(
+      key_id: ENV["APP_STORE_CONNECT_API_KEY_ID"],
+      issuer_id: ENV["APP_STORE_CONNECT_API_KEY_ISSUER_ID"],
+      key_filepath: ENV["APP_STORE_CONNECT_API_KEY_PATH"],
+      duration: 1200,
+      in_house: false
     )
-    
+
+    # Auto-increment build number
+    increment_build_number(
+      xcodeproj: "./TryggSamtalApp.xcodeproj",  # Adjust if your .xcodeproj name differs
+      build_number: latest_testflight_build_number(api_key: api_key) + 1
+    )
+
+    # Build with automatic signing (or use match for manual certs from profiles/)
+    build_app(
+      scheme: "TryggSamtalApp",  # Your app scheme—confirm in Xcode if possible, or try "TryggSamtal"
+      export_method: "app-store",
+      output_directory: "./build",
+      output_name: "TryggSamtal.ipa"
+    )
+
     upload_to_testflight(
       api_key: api_key,
-      skip_waiting_for_build_processing: true # Speeds up, but check manually
-    )
-  end
-
-  desc "Build and submit to App Store"
-  lane :release do
-    # Similar to beta, but use upload_to_app_store instead
-    api_key = app_store_connect_api_key(...) # Repeat from above
-    increment_build_number(...)
-    build_app(...)
-    upload_to_app_store(
-      api_key: api_key,
-      force: true # Skips HTML preview
+      skip_waiting_for_build_processing: true  # Check status manually in App Store Connect
     )
   end
 end
