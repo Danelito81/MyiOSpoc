@@ -3,7 +3,7 @@ default_platform(:ios)
 platform :ios do
   desc "Build and upload to TestFlight"
   lane :beta do
-    app_identifier = "com.yourname.tryggsamtal"  # ← CHANGE TO YOUR REAL BUNDLE ID
+    app_identifier = "com.yourname.tryggaamtal"  # ← CHANGE TO YOUR EXACT BUNDLE ID
 
     api_key = app_store_connect_api_key(
       key_id: ENV["APP_STORE_CONNECT_KEY_ID"],
@@ -11,13 +11,12 @@ platform :ios do
       key_filepath: ENV["APP_STORE_CONNECT_PRIVATE_KEY_PATH"]
     )
 
-    # Build directly with xcodebuild (no project file needed)
-    sh "xcodebuild -scheme TryggSamtalApp -configuration Release -derivedDataPath build -quiet clean build"
+    sh "xcodebuild -scheme TryggSamtalApp -configuration Release -derivedDataPath DerivedData clean build"
 
-    # Create IPA from the built app
-    sh "mkdir -p Payload && cp -r build/Build/Products/Release-iphoneos/TryggSamtalApp.app Payload/ && zip -r TryggSamtalApp.ipa Payload"
+    sh "mkdir -p Payload && cp -r DerivedData/Build/Products/Release-iphoneos/TryggSamtalApp.app Payload/"
 
-    # Upload
+    sh "zip -r TryggSamtalApp.ipa Payload"
+
     upload_to_testflight(
       api_key: api_key,
       app_identifier: app_identifier,
