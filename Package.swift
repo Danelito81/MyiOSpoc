@@ -8,9 +8,6 @@ let package = Package(
         .executable(name: "TryggSamtalApp", targets: ["TryggSamtalApp"])
     ],
     targets: [
-        .executableTarget(
-            name: "TryggSamtalApp",
-            path: "Sources/TryggSamtalApp"
-        )
+        .executableTarget(name: "TryggSamtalApp")  // ← no path = uses root
     ]
 )
