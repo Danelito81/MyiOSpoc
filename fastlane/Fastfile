@@ -19,7 +19,6 @@ platform :ios do
     )
 
     build_app(
-      scheme: Gym::Project.new(path: "TryggSamtalApp.xcodeproj").default_scheme,
       export_method: "app-store"
     )
 
