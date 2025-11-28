@@ -4,7 +4,7 @@ platform :ios do
   desc "Build and upload to TestFlight"
   lane :beta do
     # ←←← ADD YOUR BUNDLE ID HERE (replace the example)
-    app_identifier = "com.danelito81.TryggSamtalApp"   # ← CHANGE THIS!
+    app_identifier = "com.yourname.tryggsamtal"   # ← CHANGE THIS!
 
     api_key = app_store_connect_api_key(
       key_id: ENV["APP_STORE_CONNECT_KEY_ID"],
