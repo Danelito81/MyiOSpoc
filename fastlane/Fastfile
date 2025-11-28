@@ -6,15 +6,15 @@ platform :ios do
     app_identifier = "com.yourname.tryggsamtal"
 
     api_key = app_store_connect_api_key(
-      key_id: ENV["APP_STORE_CONNECT_KEY_ID"],
-      issuer_id: ENV["APP_STORE_CONNECT_ISSUER_ID"],
-      key_content: ENV["APP_STORE_CONNECT_API_KEY"],   # ← THIS LINE WAS MISSING
+      key_id: ENV["ASC_KEY_ID"],
+      issuer_id: ENV["ASC_ISSUER_ID"],
+      key_content: ENV["ASC_PRIVATE_KEY"],
       duration: 1200,
       in_house: false
     )
 
     cocoapods(clean_install: true)
-    increment_build_number(build_number: "1")
+    increment_build_number
 
     gym(
       workspace: "TryggSamtalApp.xcworkspace",
@@ -25,7 +25,6 @@ platform :ios do
 
     upload_to_testflight(
       api_key: api_key,
-      app_identifier: app_identifier,
       skip_waiting_for_build_processing: true
     )
   end
