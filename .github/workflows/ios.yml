@@ -24,15 +24,25 @@ jobs:
                      -exportOptionsPlist export_options.plist \
                      -exportPath build
 
-      - name: Upload to TestFlight
+      - name: Install Transporter
+        run: |
+          mkdir -p ~/transporter
+          curl -o ~/transporter/iTMSTransporter.jar https://tools.apple.com/itc/portal/iTMSTransporter.jar
+          export JAVA_HOME=/Library/Java/JavaVirtualMachines/adoptopenjdk-11.jdk/Contents/Home
+          java -jar ~/transporter/iTMSTransporter.jar --version
+
+      - name: Upload to TestFlight with Transporter
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
         run: |
-          xcrun altool --upload-app \
-                       -f build/TryggSamtalApp.ipa \
-                       -t ios \
-                       --apiKey "$ASC_KEY_ID" \
-                       --apiIssuer "$ASC_ISSUER_ID" \
-                       --verbose
+          export JAVA_HOME=/Library/Java/JavaVirtualMachines/adoptopenjdk-11.jdk/Contents/Home
+          java -Djava.awt.headless=true -jar ~/transporter/iTMSTransporter.jar \
+            --uploadApp \
+            -m ios \
+            -u "$ASC_ISSUER_ID" \
+            -p "$ASC_KEY_CONTENT" \
+            -k "$ASC_KEY_ID" \
+            -f build/TryggSamtalApp.ipa \
+            -v eapi
