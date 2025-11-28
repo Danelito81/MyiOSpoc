@@ -22,8 +22,9 @@ jobs:
         run: |
           echo "${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}" > auth_key.p8
 
-      - name: Run Fastlane beta
-        run: bundle exec fastlane beta
+- name: Run fastlane from repo root
+  working-directory: ${{ github.workspace }}
+  run: bundle exec fastlane beta
         env:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
