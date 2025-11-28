@@ -9,11 +9,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build with xcodebuild
+- name: Build archive
         run: |
           xcodebuild -scheme TryggSamtalApp \
                      -configuration Release \
-                     -sdk iphoneos \
+                     -destination 'generic/platform=iOS' \
                      -archivePath build/TryggSamtalApp.xcarchive \
                      clean archive
 
