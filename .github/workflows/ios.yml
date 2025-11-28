@@ -9,7 +9,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-- name: Build archive
+      - name: Build archive
         run: |
           xcodebuild -scheme TryggSamtalApp \
                      -configuration Release \
@@ -17,8 +17,10 @@ jobs:
                      -archivePath build/TryggSamtalApp.xcarchive \
                      clean archive
 
-          xcodebuild -archivePath build/TryggSamtalApp.xcarchive \
-                     -exportArchive \
+      - name: Export IPA
+        run: |
+          xcodebuild -exportArchive \
+                     -archivePath build/TryggSamtalApp.xcarchive \
                      -exportOptionsPlist export_options.plist \
                      -exportPath build
 
@@ -31,8 +33,6 @@ jobs:
           xcrun altool --upload-app \
                        -f build/TryggSamtalApp.ipa \
                        -t ios \
-                       -u "$APPLE_ID" \
-                       -p "@env:ASC_KEY_CONTENT" \
-                       --asc-public-id "$ASC_ISSUER_ID" \
                        --apiKey "$ASC_KEY_ID" \
+                       --apiIssuer "$ASC_ISSUER_ID" \
                        --verbose
