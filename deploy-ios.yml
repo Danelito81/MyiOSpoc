@@ -21,6 +21,12 @@ jobs:
       - name: Install dependencies
         run: bundle install
 
+        - name: Install Flutter (if using Flutter)
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.x' # Adjust to your version
+          channel: 'stable'
+
       - name: Build and Deploy to TestFlight
         run: bundle exec fastlane beta
         working-directory: ./ # For Flutter, change to ./ if Fastfile is at root; or ./ios if native
